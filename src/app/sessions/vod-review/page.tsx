@@ -3,29 +3,12 @@
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { motion } from "framer-motion";
+import Image from "next/image";
 
-const SLUG = "vod-review";
-const VIDEO_SRC = "/videos/Placeholder-bg.mp4";
+
 
 export default function VODReviewPage() {
-  const vRef = useRef<HTMLVideoElement>(null);
 
-  // Seek to saved frame from Home overlay, then pause (keeps a dramatic still).
-  useEffect(() => {
-    const key = `vidTime:${SLUG}`;
-    const t = Number(sessionStorage.getItem(key));
-    const v = vRef.current;
-    if (!v || Number.isNaN(t)) return;
-    const apply = () => {
-      try {
-        v.currentTime = t;
-        v.pause();
-      } catch {}
-    };
-    if (v.readyState >= 2) apply();
-    else v.addEventListener("loadedmetadata", apply, { once: true });
-    sessionStorage.removeItem(key);
-  }, []);
 
   // UI state
   const [showIncluded, setShowIncluded] = useState(false);
@@ -52,30 +35,31 @@ export default function VODReviewPage() {
      <main className="relative min-h-screen text-white overflow-x-hidden">
 
  {/* HERO — full-bleed video */}
-<section className="relative isolate w-full min-h-[100dvh] overflow-hidden">
-  {/* Video fills the viewport */}
-  <video
-    ref={vRef}
-    src={VIDEO_SRC}
-    className="absolute inset-0 h-full w-full object-cover"
-    muted
-    playsInline
-    preload="auto"
+<section className="relative isolate h-[100svh] overflow-hidden">
+  {/* BG image fills the section */}
+  <Image
+    src="/videos/vod-review-poster-end.png"
+    alt=""
+    fill
+    priority
+    sizes="100vw"
+    className="object-cover object-[50%_35%]"  // 👈 focus point
   />
 
-  {/* Subtle dark scrim for readability */}
+  {/* Dark scrim */}
   <div className="pointer-events-none absolute inset-0 bg-gradient-to-b from-black/15 via-black/30 to-black/45" />
 
+
   {/* Width-limited content on top of the video */}
-  <div className="relative mx-auto flex min-h-[100dvh] max-w-6xl items-center px-6 py-12">
+  <div className="relative mx-auto flex h-full max-w-6xl items-center px-6 py-12">
     <div className="grid w-full grid-cols-1 items-center gap-8 md:grid-cols-3">
       {/* Left: title + chips */}
       <motion.div
-        initial={{ opacity: 0, y: 12 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.28, ease: [0.22, 1, 0.36, 1] }}
-        className="flex flex-col gap-4"
-      >
+  initial={{ opacity: 0, y: 8 }}
+  animate={{ opacity: 1, y: 0 }}
+  transition={{ duration: 0.35, ease: [0.22, 1, 0.36, 1] }}
+  className="relative mx-auto flex min-h-[100dvh] max-w-6xl items-center px-6 py-12"
+>
         <div>
           <h1 className="text-4xl md:text-5xl font-extrabold tracking-tight">VOD Review</h1>
           <p className="text-sm md:text-base text-white/80">League of Legends gameplay analysis</p>
