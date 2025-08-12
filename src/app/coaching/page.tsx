@@ -6,6 +6,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import SessionCard from "../components/SessionCard";
 import { ROTATE_MS, SLIDE_VARIANTS } from "../components/carousel/constants";
 import { SESSIONS, POSTER_SRC, VIDEO_SRC, TINT_BY_SLUG, END_FRAME_SRC } from "../data/sessions";
+import Image from "next/image";
 
 const clampIndex = (i: number) => (i + SESSIONS.length) % SESSIONS.length;
 
@@ -30,6 +31,13 @@ export default function Page() {
   // tab/visibility
   const [isVisible, setIsVisible] = useState(true);
   const [isFocused, setIsFocused] = useState(true);
+
+
+// Prefetch the next session page when overlay opens
+useEffect(() => {
+  if (!openSlug) return;
+  router.prefetch(`/sessions/${openSlug}`);
+}, [openSlug, router]);
 
   // visibility/focus listeners
   useEffect(() => {
@@ -73,9 +81,10 @@ export default function Page() {
     // ✅ preload the dedicated end-frame so the fade has pixels (no black)
     const endSrc = END_FRAME_SRC[openSlug];
     if (endSrc) {
-      const img = new Image();
+      const img = new window.Image();
       img.src = endSrc;
     }
+    
 
     // ensure clip starts and plays
     const v = videoRef.current;
@@ -262,7 +271,6 @@ export default function Page() {
               className="fixed inset-0 z-50"
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
             >
               <div className="absolute inset-0 bg-black/60" />
               <motion.div
