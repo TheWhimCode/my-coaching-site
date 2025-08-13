@@ -38,8 +38,17 @@ export default function SessionGlowingBlock({
   return (
     <motion.div
       whileHover={{ scale: isMain ? 1.02 : 1.01 }}
+          animate={{
+      filter: ["brightness(1)", "brightness(1.25)", "brightness(1)"],
+    }}
+    transition={{
+      duration: 0.15,
+      repeat: Infinity,
+      repeatDelay: 3 + Math.random() * 3, // random-ish delay
+    }}
       className={`relative rounded-2xl p-[2px] bg-gradient-to-r from-cyan-400 via-blue-500 to-violet-500 ${className}`}
       style={style}
+      
     >
       <div className="relative rounded-2xl bg-black/60 backdrop-blur p-5 ring-1 ring-white/10 text-center">
         {/* ? tooltip trigger */}

@@ -18,6 +18,8 @@ export default function VODReviewPage() {
   const [showHint, setShowHint] = useState(false);
   const [heroLoaded, setHeroLoaded] = useState(false);
 
+
+
     // ✅ New session customization state
   type AddOn = { id: string; minutes: number; price: number };
   const MAX_EXTRA_MIN = 120;
@@ -37,6 +39,13 @@ export default function VODReviewPage() {
 const totalPrice   = session.basePrice + extraPrice;
 const MAX_SESSION_MINUTES = 120;
 
+  type Slot = { id: string; startISO: string; durationMin: number; isTaken: boolean };
+
+const exampleSlots: Slot[] = [
+  { id: "s1", startISO: "2025-08-13T17:00:00+02:00", durationMin: 60, isTaken: false },
+  { id: "s2", startISO: "2025-08-13T19:00:00+02:00", durationMin: 60, isTaken: true },
+  { id: "s3", startISO: "2025-08-14T18:00:00+02:00", durationMin: 60, isTaken: false },
+];
 
   
   // Handlers for customization
@@ -65,6 +74,7 @@ const addAddon = (a: AddOn) => {
     document.getElementById("details")?.scrollIntoView({ behavior: "smooth", block: "start" });
   };
 
+  
   return (
     <main className="relative min-h-screen text-white overflow-x-hidden">
       <SessionHero
@@ -79,6 +89,8 @@ const addAddon = (a: AddOn) => {
     "Live review + timestamped notes",
     "Action plan & follow-ups",
   ]}
+  slots={exampleSlots}                     // ✅ show buttons
+  onPickSlot={(id) => setDrawerOpen(true)} // ✅ clicking opens drawer
 >
   <div className="flex flex-col items-center">
 
@@ -103,6 +115,13 @@ const addAddon = (a: AddOn) => {
   ))}
 </div>
   </div>
+howItWorks={[
+  "Send your VOD + goals",
+  "Live review with timestamps",
+  "Strengths & weaknesses",
+  "3-step improvement path",
+  "Summary & questions",
+]}
 
 
 

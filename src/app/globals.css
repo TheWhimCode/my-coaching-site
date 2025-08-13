@@ -47,3 +47,90 @@ body {
   mask-repeat: no-repeat;
   mask-size: 100% 100%;
 }
+@keyframes scanlines {
+  from { background-position: 0 0; }
+  to { background-position: 0 2px; }
+}
+
+.animate-scanlines {
+  animation: scanlines 0.25s linear infinite;
+}
+
+
+/* —— HUD overlays —— */
+@keyframes scanlines {
+  0% { background-position: 0 0; }
+  100% { background-position: 0 4px; }
+}
+
+/* Base gradient you can drop behind the hero */
+.bg-hero-gradient {
+  background: linear-gradient(to bottom, #0a0f1e, #0b1024 55%, #0a0f1e);
+}
+
+/* Soft center focus */
+.vignette::after {
+  content: "";
+  position: absolute; inset: 0;
+  background: radial-gradient(ellipse at 50% 40%, transparent 55%, rgba(0,0,0,.6) 100%);
+  pointer-events: none;
+}
+
+/* Subtle grid */
+.hud-grid {
+  background-image:
+    linear-gradient(to right, rgba(255,255,255,.08) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(255,255,255,.08) 1px, transparent 1px);
+  background-size: 24px 24px;
+  opacity: .12;
+  pointer-events: none;
+}
+
+/* Moving scanlines (slow) */
+.scanlines {
+  background-image: linear-gradient(rgba(255,255,255,0.04) 1px, transparent 1px);
+  background-size: 100% 4px;
+  animation: scanlines 6s linear infinite;
+  pointer-events: none;
+}
+
+/* Film noise */
+.noise {
+  background-image: url("/textures/noise.png");
+  mix-blend-mode: overlay;
+  opacity: .04;
+  pointer-events: none;
+}
+
+/* —— HUD helpers for hero background —— */
+.bg-hero-gradient {
+  background: linear-gradient(to bottom, #0a0f1e, #0b1024 55%, #0a0f1e);
+}
+.vignette::after {
+  content: ""; position: absolute; inset: 0;
+  background: radial-gradient(ellipse at 50% 40%, transparent 55%, rgba(0,0,0,.6) 100%);
+  pointer-events: none;
+}
+.hud-grid {
+  background-image:
+    linear-gradient(to right, rgba(255,255,255,.08) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(255,255,255,.08) 1px, transparent 1px);
+  background-size: 24px 24px;
+  opacity: .12; pointer-events: none;
+}
+/* slow scanlines (separate from your .animate-scanlines) */
+@keyframes scanlines-slow {
+  0% { background-position: 0 0; }
+  100% { background-position: 0 4px; }
+}
+.scanlines {
+  background-image: linear-gradient(rgba(255,255,255,0.04) 1px, transparent 1px);
+  background-size: 100% 4px;
+  animation: scanlines-slow 6s linear infinite;
+  pointer-events: none;
+}
+.noise {
+  background-image: url("/textures/noise.png");
+  mix-blend-mode: overlay;
+  opacity: .04; pointer-events: none;
+}
