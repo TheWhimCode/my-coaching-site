@@ -5,7 +5,6 @@ import { useEffect, useRef, useState } from "react";
 import { motion } from "framer-motion";
 import Image from "next/image";
 import SessionHero from "@/app/sessions/components/SessionHero";
-import SessionGlowingBlock from "@/app/sessions/components/SessionGlowingBlock";
 import SessionTiles from "@/app/sessions/components/SessionTiles";
 import SessionExample from "@/app/sessions/components/SessionExample";
 import CustomizeDrawer from "../components/CustomizeDrawer";
@@ -77,7 +76,7 @@ const addAddon = (a: AddOn) => {
   
   return (
     <main className="relative min-h-screen text-white overflow-x-hidden">
-      <SessionHero
+<SessionHero
   title="VOD Review"
   subtitle="League of Legends gameplay analysis"
   image="/videos/vod-review-poster-end.png"
@@ -89,44 +88,14 @@ const addAddon = (a: AddOn) => {
     "Live review + timestamped notes",
     "Action plan & follow-ups",
   ]}
-  slots={exampleSlots}                     // ✅ show buttons
-  onPickSlot={(id) => setDrawerOpen(true)} // ✅ clicking opens drawer
->
-  <div className="flex flex-col items-center">
-
-<SessionGlowingBlock
-  isMain
-  label="VOD review"
-  minutes={session.baseMinutes + extraMinutes}
-  price={session.basePrice}
+  slots={exampleSlots}                    
+  onPickSlot={() => setDrawerOpen(true)}  
+  isCustomizingCenter={drawerOpen}
+  baseMinutes={session.baseMinutes}
   extraMinutes={extraMinutes}
-  className="w-80"
+  totalPriceEUR={totalPrice}
 />
 
-<div className="mt-4 w-full max-w-[440px] flex flex-col gap-3">
-  {session.addons.map(a => (
-    <SessionGlowingBlock
-      key={a.id}
-      label="Bonus time"
-      bonusPrice={a.price}
-      style={{ height: Math.max(56, a.minutes * 2) }} // optional visual scaling
-      className="w-80"
-    />
-  ))}
-</div>
-  </div>
-howItWorks={[
-  "Send your VOD + goals",
-  "Live review with timestamps",
-  "Strengths & weaknesses",
-  "3-step improvement path",
-  "Summary & questions",
-]}
-
-
-
-
-</SessionHero>
 <CustomizeDrawer
   open={drawerOpen}
   onClose={() => setDrawerOpen(false)}

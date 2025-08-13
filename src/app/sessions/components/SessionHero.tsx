@@ -3,6 +3,7 @@ import { motion } from "framer-motion";
 import Image from "next/image";
 import AvailableSlots, { Slot } from "./AvailableSlots";
 import CenterSessionPanel from "@/app/sessions/components/CenterSessionPanel";
+import SessionBlock from "@/app/sessions/components/SessionBlock";
 
 
 // --- CTA-sized, non-clickable step pill ---
@@ -56,7 +57,12 @@ export default function SessionHero({
   howItWorks,
   onCustomize,
   slots,                                   // ✅ destructure
-  onPickSlot,                              // ✅ destructure
+  onPickSlot, 
+    baseMinutes = 60,
+  basePriceEUR = 50,
+  extraMinutes = 0,
+  totalPriceEUR = 50,
+  isCustomizingCenter = false,                             // ✅ destructure
   
 }: Props) {
 return (
@@ -101,24 +107,23 @@ return (
   </div>
 </div>
 
-
+<CenterSessionPanel
+  title={title}
+  baseMinutes={baseMinutes}
+  basePriceEUR={basePriceEUR}
+  extraMinutes={extraMinutes}
+  totalPriceEUR={totalPriceEUR}
+  isCustomizing={isCustomizingCenter}
+/>
 
       {/* Center — your glowing blocks */}
       {/* Center — session overview that “wakes up” when customizing */}
-<div className="justify-self-center">
-  <CenterSessionPanel
-    title={title}
-    baseMinutes={60}
-    basePriceEUR={50}
-    extraMinutes={0}          // you'll pass real values from page
-    totalPriceEUR={50}        // you'll pass real values from page
-    isCustomizing={false}     // wired from page state (drawerOpen or your own)
-    onCustomize={onCustomize!}
-    onQuickAdd15={() => {}}
-    onClearExtras={() => {}}
-    onPickPreset={() => {}}
-  />
-</div>
+
+
+
+
+
+
 
 
       {/* Right — CTA + slots */}
