@@ -40,8 +40,9 @@ export const TINT_BY_SLUG: Record<string,string> = {
 };
 
 export const END_FRAME_SRC: Record<string, string> = {
-  "vod-review": "/videos/vod-review-poster-end.png", // your true final frame
+  "vod-review": "/videos/vod-review-poster-end.png",
   "signature":  "/videos/signature-end.png",
   "quick-20":   "/videos/quick-20-end.png",
   "bootcamp":   "/videos/bootcamp-end.png",
 };
+

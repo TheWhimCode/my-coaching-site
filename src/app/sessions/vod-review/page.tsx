@@ -1,27 +1,26 @@
 "use client";
 
-import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
-import { motion } from "framer-motion";
-import Image from "next/image";
 import SessionHero from "@/app/sessions/components/SessionHero";
 import SessionTiles from "@/app/sessions/components/SessionTiles";
 import SessionExample from "@/app/sessions/components/SessionExample";
 import CustomizeDrawer from "../components/CustomizeDrawer";
 import SessionTestimonialsSection from "@/app/sessions/components/SessionTestimonialsSection";
-
+import CalendarOverlay from "@/app/sessions/components/CalendarOverlay";
+import { LayoutGroup, AnimatePresence } from "framer-motion";
+import type { Cfg } from "../../utils/sessionConfig";
 
 export default function VODReviewPage() {
   // UI state
   const [showIncluded, setShowIncluded] = useState(false);
   const [showHint, setShowHint] = useState(false);
-  const [heroLoaded, setHeroLoaded] = useState(false);
 
 
 
     // ✅ New session customization state
   type AddOn = { id: string; minutes: number; price: number };
   const MAX_EXTRA_MIN = 120;
+const [cfg, setCfg] = useState<Cfg>({ liveMin: 60, liveBlocks: 0, followups: 0 });
 
   const [session, setSession] = useState({
     type: "vod-review",
@@ -37,7 +36,7 @@ export default function VODReviewPage() {
   const [drawerOpen, setDrawerOpen] = useState(false);
 const totalPrice   = session.basePrice + extraPrice;
 const MAX_SESSION_MINUTES = 120;
-
+const [calendarOpen, setCalendarOpen] = useState(false);
   type Slot = { id: string; startISO: string; durationMin: number; isTaken: boolean };
 
 const exampleSlots: Slot[] = [
@@ -54,6 +53,7 @@ const addAddon = (a: AddOn) => {
   setSession(s => ({ ...s, addons: [...s.addons, a] }));
 };
   const clearAddons = () => setSession(s => ({ ...s, addons: [] }));
+const calcPrice = (c: Cfg) => 50 + Math.max(0, c.liveMin - 60) * 0.5 + c.liveBlocks * 10 + c.followups * 10;
 
 
   // Show “Need more info?” after a short delay; hide on first interaction
@@ -75,6 +75,7 @@ const addAddon = (a: AddOn) => {
 
   
   return (
+    <LayoutGroup id="booking-flow">
     <main className="relative min-h-screen text-white overflow-x-hidden">
 <SessionHero
   title="VOD Review"
@@ -88,23 +89,40 @@ const addAddon = (a: AddOn) => {
     "Live review + timestamped notes",
     "Action plan & follow-ups",
   ]}
-  slots={exampleSlots}                    
-  onPickSlot={() => setDrawerOpen(true)}  
+  slots={exampleSlots}
+  onPickSlot={() => setDrawerOpen(true)}
   isCustomizingCenter={drawerOpen}
-  baseMinutes={session.baseMinutes}
-  extraMinutes={extraMinutes}
-  totalPriceEUR={totalPrice}
+baseMinutes={cfg.liveMin}
+extraMinutes={0}
+totalPriceEUR={calcPrice(cfg)}
+liveBlocks={cfg.liveBlocks} 
+followups={cfg.followups}
+
+  onBookNow={() => setCalendarOpen(true)}
 />
+
+{/* Mount/unmount the overlay so Framer can animate the shared element */}
+<AnimatePresence>
+{calendarOpen && (
+  <CalendarOverlay
+    sessionType="VOD Review"
+    liveMinutes={cfg.liveMin}
+    inGame={cfg.liveBlocks > 0}
+    followups={cfg.followups}
+    onClose={() => setCalendarOpen(false)}
+  />
+)}
+
+</AnimatePresence>
+
 
 <CustomizeDrawer
   open={drawerOpen}
   onClose={() => setDrawerOpen(false)}
-  baseMinutes={session.baseMinutes}
-  maxExtra={120}
-  currentExtra={extraMinutes}
-  onAdd={addAddon}
-  onClear={clearAddons}
+  cfg={cfg}
+  onChange={setCfg}
 />
+
 
 
 
@@ -156,5 +174,6 @@ const addAddon = (a: AddOn) => {
         </div>
       )}
     </main>
+    </LayoutGroup>
   );
 }

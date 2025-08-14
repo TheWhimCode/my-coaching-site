@@ -1,0 +1,42 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model Slot {
+  id        String   @id @default(cuid())
+  startTime DateTime
+  duration  Int
+  isTaken   Boolean  @default(false)
+  booking   Booking? @relation("SlotBooking")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([startTime])
+  @@index([startTime])
+}
+
+model Booking {
+  id          String   @id @default(cuid())
+  sessionType String
+  status      String   @default("unpaid")
+
+  slot        Slot     @relation("SlotBooking", fields: [slotId], references: [id])
+  slotId      String   @unique
+
+  liveMinutes Int
+  inGame      Boolean  @default(false)
+  followups   Int      @default(0)
+  discord     String
+  notes       String?
+  createdAt   DateTime @default(now())
+}
