@@ -7,6 +7,8 @@ import SessionExample from "@/app/sessions/components/SessionExample";
 import CustomizeDrawer from "../components/CustomizeDrawer";
 import SessionTestimonialsSection from "@/app/sessions/components/SessionTestimonialsSection";
 import CalendarOverlay from "@/app/sessions/components/CalendarOverlay";
+import CalLikeOverlay from "@/app/sessions/components/CalLikeOverlay";
+
 import { LayoutGroup, AnimatePresence } from "framer-motion";
 import type { Cfg } from "../../utils/sessionConfig";
 
@@ -95,16 +97,13 @@ const calcPrice = (c: Cfg) => 50 + Math.max(0, c.liveMin - 60) * 0.5 + c.liveBlo
 baseMinutes={cfg.liveMin}
 extraMinutes={0}
 totalPriceEUR={calcPrice(cfg)}
-liveBlocks={cfg.liveBlocks} 
-followups={cfg.followups}
-
   onBookNow={() => setCalendarOpen(true)}
 />
 
 {/* Mount/unmount the overlay so Framer can animate the shared element */}
 <AnimatePresence>
 {calendarOpen && (
-  <CalendarOverlay
+  <CalLikeOverlay
     sessionType="VOD Review"
     liveMinutes={cfg.liveMin}
     inGame={cfg.liveBlocks > 0}
@@ -112,6 +111,7 @@ followups={cfg.followups}
     onClose={() => setCalendarOpen(false)}
   />
 )}
+
 
 </AnimatePresence>
 
