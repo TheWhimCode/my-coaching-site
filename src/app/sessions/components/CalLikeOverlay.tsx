@@ -12,43 +12,12 @@ import {
   startOfMonth,
   startOfWeek,
 } from "date-fns";
-import { motion } from "framer-motion";
 import { createCheckout, fetchSlots } from "../../utils/api";
 import type { Slot } from "../../utils/api";
 
-/* ---------- utils ---------- */
-
-// Display window / rules for starts
-const AVAIL = {
-  hoursStart: 13,        // 13:00 inclusive
-  hoursEnd: 24,          // 24:00 exclusive
-  minuteStarts: [0, 30], // starts allowed at :00 and :30
-  minLeadMinutes: 240,   // hide anything < 4h from now
-  maxAdvanceDays: 45,    // don’t show beyond 45 days out
-};
-
-function toISOMinute(d: Date) {
-  const z = new Date(d.getTime() - d.getTimezoneOffset() * 60000);
-  return z.toISOString().slice(0, 16) + ":00.000Z";
-}
-function dateKey(d: Date) {
-  return format(d, "yyyy-MM-dd");
-}
-// window check (don’t filter on minuteStarts here!)
-function isWithinWindow(local: Date) {
-  const now = new Date();
-  const diffMs = local.getTime() - now.getTime();
-  const leadOk = diffMs >= AVAIL.minLeadMinutes * 60_000;
-  const maxOk  = diffMs <= AVAIL.maxAdvanceDays * 86_400_000;
-  const h = local.getHours();
-  const hourOk = h >= AVAIL.hoursStart && h < AVAIL.hoursEnd;
-  return leadOk && maxOk && hourOk;
-}
-
-/* ---------- props ---------- */
 type Props = {
   sessionType: string;
-  liveMinutes: number;    // drives contiguous requirement
+  liveMinutes: number;
   inGame?: boolean;
   followups?: number;
   onClose?: () => void;
@@ -61,7 +30,6 @@ export default function CalLikeOverlay({
   followups = 0,
   onClose,
 }: Props) {
-  // month being viewed
   const [month, setMonth] = useState(() => {
     const d = new Date();
     d.setDate(1);
@@ -69,29 +37,25 @@ export default function CalLikeOverlay({
     return d;
   });
 
-  // remote slots
   const [slots, setSlots] = useState<Slot[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  // selection
   const [selectedDate, setSelectedDate] = useState<Date | null>(null);
   const [selectedSlotId, setSelectedSlotId] = useState<string | null>(null);
-  const [selectedSlotISO, setSelectedSlotISO] = useState<string | null>(null);
 
-  // discord & submit state
   const [discord, setDiscord] = useState("");
   const [dErr, setDErr] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
 
   function isDiscordValid(s: string) {
     const t = s.trim();
-    if (!t) return true; // optional
+    if (!t) return true;
     return /^@?[a-z0-9._-]{2,32}$/i.test(t) || /^.{2,32}#\d{4}$/.test(t);
   }
   const discordOk = isDiscordValid(discord);
 
-  // fetch a padded month of slots
+  // fetch a padded month of slots (authoritative from server)
   useEffect(() => {
     let ignore = false;
     const from = startOfWeek(startOfMonth(month), { weekStartsOn: 1 });
@@ -101,7 +65,7 @@ export default function CalLikeOverlay({
       setLoading(true);
       setError(null);
       try {
-        const data = await fetchSlots(from, to);
+        const data = await fetchSlots(from, to, liveMinutes); // <-- pass liveMinutes
         if (!ignore) setSlots(data);
       } catch (e: any) {
         if (!ignore) setError(e?.message || "Failed to load availability");
@@ -111,63 +75,34 @@ export default function CalLikeOverlay({
     })();
 
     return () => { ignore = true; };
-  }, [month]);
+  }, [month, liveMinutes]);
 
-  /* ---------------- core logic: contiguous starts ---------------- */
-
-  // All free quarter-hours per day, within window
-  const freeByDay = useMemo(() => {
+  // Group returned starts by day
+  const startsByDay = useMemo(() => {
     const map = new Map<string, { id: string; local: Date }[]>();
     for (const s of slots) {
-      if (s.isTaken) continue;
-      const local = new Date(s.startTime);
-      if (!isWithinWindow(local)) continue;
-      const key = dateKey(local);
+      if (s.isTaken) continue; // server should already filter, but keep safe
+      const dt = new Date(s.startTime);
+      const key = dt.toISOString().slice(0, 10);
       if (!map.has(key)) map.set(key, []);
-      map.get(key)!.push({ id: s.id, local });
+      map.get(key)!.push({ id: s.id, local: dt });
     }
     for (const arr of map.values()) arr.sort((a,b)=>a.local.getTime()-b.local.getTime());
     return map;
   }, [slots]);
 
-  // For the month grid: mark a day available only if it has ≥1 valid start
   const validStartCountByDay = useMemo(() => {
-    const need = Math.ceil(liveMinutes / 15);
     const out = new Map<string, number>();
-    for (const [key, arr] of freeByDay.entries()) {
-      const freeSet = new Set(arr.map(x => +x.local));
-      let count = 0;
-      for (const s of arr) {
-        // enforce starts at :00 / :30 only
-        if (!AVAIL.minuteStarts.includes(s.local.getMinutes())) continue;
-        let ok = true;
-        for (let i = 0; i < need; i++) {
-          if (!freeSet.has(+s.local + i * 15 * 60_000)) { ok = false; break; }
-        }
-        if (ok) count++;
-      }
-      if (count > 0) out.set(key, count);
-    }
+    for (const [k, arr] of startsByDay.entries()) out.set(k, arr.length);
     return out;
-  }, [freeByDay, liveMinutes]);
+  }, [startsByDay]);
 
-  // For right pane: list only valid starts for the selected day
   const validStartsForSelected = useMemo(() => {
     if (!selectedDate) return [];
-    const need = Math.ceil(liveMinutes / 15);
-    const day = freeByDay.get(dateKey(selectedDate)) ?? [];
-    const freeSet = new Set(day.map(x => +x.local));
+    const key = selectedDate.toISOString().slice(0, 10);
+    return startsByDay.get(key) ?? [];
+  }, [selectedDate, startsByDay]);
 
-    return day.filter(s => {
-      if (!AVAIL.minuteStarts.includes(s.local.getMinutes())) return false;
-      for (let i = 0; i < need; i++) {
-        if (!freeSet.has(+s.local + i * 15 * 60_000)) return false;
-      }
-      return true;
-    });
-  }, [selectedDate, freeByDay, liveMinutes]);
-
-  // Month matrix (6 weeks view)
   const monthMatrix = useMemo(() => {
     const start = startOfWeek(startOfMonth(month), { weekStartsOn: 1 });
     const end = endOfWeek(endOfMonth(month), { weekStartsOn: 1 });
@@ -206,17 +141,13 @@ export default function CalLikeOverlay({
     }
   }
 
-  /* ---------------- UI ---------------- */
-
   return (
     <div className="fixed inset-0 z-50 bg-black/65 backdrop-blur-sm grid place-items-center">
       <div className="w-[92vw] max-w-[1200px] h-[88vh] rounded-2xl overflow-hidden ring-1 ring-white/10 bg-neutral-950 shadow-2xl flex flex-col">
         {/* header */}
         <div className="px-6 pt-5 pb-3 flex items-center justify-between">
           <div className="text-white/85">
-            <div className="text-[11px] uppercase tracking-[0.18em] text-white/60">
-              Schedule
-            </div>
+            <div className="text-[11px] uppercase tracking-[0.18em] text-white/60">Schedule</div>
             <div className="text-xl font-semibold">{sessionType}</div>
           </div>
 
@@ -242,42 +173,26 @@ export default function CalLikeOverlay({
                    style={{ background: "linear-gradient(135deg, rgba(34,211,238,0.18), rgba(99,102,241,0.16))" }} />
               <div className="relative z-10">
                 <div className="flex items-center justify-between mb-3">
-                  <button
-                    onClick={() => setMonth((m) => addMonths(m, -1))}
-                    className="h-9 px-3 rounded-lg bg-white/10 hover:bg-white/15 ring-1 ring-white/20 text-white/90"
-                  >
-                    ←
-                  </button>
-                  <div className="text-white font-semibold">
-                    {format(month, "MMMM yyyy")}
-                  </div>
-                  <button
-                    onClick={() => setMonth((m) => addMonths(m, 1))}
-                    className="h-9 px-3 rounded-lg bg-white/10 hover:bg-white/15 ring-1 ring-white/20 text-white/90"
-                  >
-                    →
-                  </button>
+                  <button onClick={() => setMonth((m) => addMonths(m, -1))}
+                          className="h-9 px-3 rounded-lg bg-white/10 hover:bg-white/15 ring-1 ring-white/20 text-white/90">←</button>
+                  <div className="text-white font-semibold">{format(month, "MMMM yyyy")}</div>
+                  <button onClick={() => setMonth((m) => addMonths(m, 1))}
+                          className="h-9 px-3 rounded-lg bg-white/10 hover:bg-white/15 ring-1 ring-white/20 text-white/90">→</button>
                 </div>
 
                 {loading ? (
-                  <div className="h-[300px] grid place-items-center text-white/60">
-                    Loading…
-                  </div>
+                  <div className="h-[300px] grid place-items-center text-white/60">Loading…</div>
                 ) : error ? (
-                  <div className="h-[300px] grid place-items-center text-rose-400">
-                    {error}
-                  </div>
+                  <div className="h-[300px] grid place-items-center text-rose-400">{error}</div>
                 ) : (
                   <>
                     <div className="grid grid-cols-7 text-center text-[11px] text-white/60 mb-1">
-                      {["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].map((d) => (
-                        <div key={d}>{d}</div>
-                      ))}
+                      {["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].map((d) => <div key={d}>{d}</div>)}
                     </div>
 
                     <div className="grid grid-cols-7 gap-1">
                       {monthMatrix.map((d) => {
-                        const key = dateKey(d);
+                        const key = d.toISOString().slice(0, 10);
                         const hasAvail = (validStartCountByDay.get(key) ?? 0) > 0;
                         const selected = selectedDate && isSameDay(d, selectedDate);
                         const outside = !isSameMonth(d, month);
@@ -290,25 +205,18 @@ export default function CalLikeOverlay({
                             onClick={() => {
                               setSelectedDate(d);
                               setSelectedSlotId(null);
-                              setSelectedSlotISO(null);
                             }}
                             className={[
                               "aspect-square rounded-lg text-sm ring-1 ring-white/10 transition-all",
                               outside ? "opacity-45" : "",
-                              hasAvail
-                                ? "bg-white/[0.03] hover:bg-white/[0.08]"
-                                : "bg-white/[0.02] cursor-not-allowed",
+                              hasAvail ? "bg-white/[0.03] hover:bg-white/[0.08]" : "bg-white/[0.02] cursor-not-allowed",
                               selected ? "ring-2 ring-cyan-400/70 bg-cyan-400/10" : "",
                             ].join(" ")}
                           >
                             <div className="flex h-full w-full items-center justify-center relative">
                               <span className="text-white/90">{format(d, "d")}</span>
-                              {today && (
-                                <span className="absolute bottom-1 h-1.5 w-1.5 rounded-full bg-cyan-300" />
-                              )}
-                              {hasAvail && !selected && (
-                                <span className="absolute top-1 right-1 h-1.5 w-1.5 rounded-full bg-emerald-300" />
-                              )}
+                              {today && <span className="absolute bottom-1 h-1.5 w-1.5 rounded-full bg-cyan-300" />}
+                              {hasAvail && !selected && <span className="absolute top-1 right-1 h-1.5 w-1.5 rounded-full bg-emerald-300" />}
                             </div>
                           </button>
                         );
@@ -324,35 +232,23 @@ export default function CalLikeOverlay({
               <div className="text-white/80 font-medium mb-3">
                 {selectedDate ? (
                   <>Available times on <span className="text-white">{format(selectedDate, "EEE, MMM d")}</span></>
-                ) : (
-                  "Select a day to see times"
-                )}
+                ) : ("Select a day to see times")}
               </div>
 
               <div className="relative flex-1 min-h-0 overflow-auto rounded-xl ring-1 ring-white/10 bg-neutral-950/60">
                 {!selectedDate ? (
-                  <div className="h-full grid place-items-center text-white/50 text-sm">
-                    Pick a day on the left
-                  </div>
+                  <div className="h-full grid place-items-center text-white/50 text-sm">Pick a day on the left</div>
                 ) : validStartsForSelected.length === 0 ? (
-                  <div className="h-full grid place-items-center text-white/60 text-sm">
-                    No times available for this day.
-                  </div>
+                  <div className="h-full grid place-items-center text-white/60 text-sm">No times available for this day.</div>
                 ) : (
                   <ul className="p-3 grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2">
                     {validStartsForSelected.map(({ id, local }) => {
                       const isActive = selectedSlotId === id;
-                      const label = local.toLocaleTimeString([], {
-                        hour: "numeric",
-                        minute: "2-digit",
-                      });
+                      const label = local.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
                       return (
                         <li key={id}>
                           <button
-                            onClick={() => {
-                              setSelectedSlotId(id);
-                              setSelectedSlotISO(toISOMinute(local));
-                            }}
+                            onClick={() => setSelectedSlotId(id)}
                             className={[
                               "w-full px-3 py-2 rounded-lg text-sm ring-1 transition",
                               isActive
@@ -380,15 +276,12 @@ export default function CalLikeOverlay({
         <div className="px-6 py-4 border-t border-white/10 flex items-center justify-between gap-3">
           {dErr && <div className="text-rose-400 text-sm">{dErr}</div>}
           <div className="ml-auto flex gap-2">
-            <button
-              className="px-4 py-2 rounded-lg bg-white/10 hover:bg-white/15 ring-1 ring-white/15 text-white"
-              onClick={onClose}
-            >
+            <button className="px-4 py-2 rounded-lg bg-white/10 hover:bg-white/15 ring-1 ring-white/15 text-white" onClick={onClose}>
               Cancel
             </button>
             <button
               className="px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 text-white"
-              disabled={!selectedSlotId || pending}
+              disabled={!selectedSlotId || pending || !discordOk}
               onClick={submitBooking}
             >
               {pending ? "Redirecting…" : "Book & pay"}

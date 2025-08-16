@@ -1,6 +1,6 @@
 // app/api/bookings/route.ts
 import { z } from 'zod'
-import { prisma } from '../../lib/prisma'
+import { prisma } from "@/lib/prisma";
 export const runtime = 'nodejs'
 import { Prisma } from '@prisma/client';
 
