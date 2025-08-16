@@ -1,14 +1,11 @@
-// src/app/api/stripe/webhook/route.ts
 import Stripe from "stripe";
-import { prisma } from "../../../../lib/prisma"; // adjust path
-import { Prisma } from '@prisma/client';
-
+import { prisma } from "../../../lib/prisma";
+import type { Prisma } from "@prisma/client";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!);
-
+const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || "");
 
 export async function POST(req: Request) {
   const sig = req.headers.get("stripe-signature");
@@ -24,7 +21,7 @@ export async function POST(req: Request) {
 
   if (event.type === "checkout.session.completed") {
     const session = event.data.object as Stripe.Checkout.Session;
-    const m = session.metadata ?? {};
+    const m = (session.metadata ?? {}) as Record<string, string>;
     const slotId = m.slotId!;
     const sessionType = m.sessionType ?? "Session";
     const liveMinutes = parseInt(m.liveMinutes ?? "60", 10);
@@ -33,7 +30,7 @@ export async function POST(req: Request) {
     const followups = parseInt(m.followups ?? "0", 10);
 
     try {
-await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
+      await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
         const updated = await tx.slot.updateMany({
           where: { id: slotId, isTaken: false },
           data: { isTaken: true },
@@ -53,7 +50,6 @@ await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
         });
       });
     } catch (e) {
-      // If the slot got taken, refund automatically (optional)
       try {
         if (session.payment_intent) {
           await stripe.refunds.create({ payment_intent: String(session.payment_intent) });

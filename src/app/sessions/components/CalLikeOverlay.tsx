@@ -15,53 +15,40 @@ import {
 import { motion } from "framer-motion";
 import { createCheckout, fetchSlots } from "../../utils/api";
 import type { Slot } from "../../utils/api";
-import { useRouter } from "next/navigation";
 
 /* ---------- utils ---------- */
 
-// Show fewer, nicer options without changing the DB
+// Display window / rules for starts
 const AVAIL = {
-  hoursStart: 13,           // 13:00 inclusive
-  hoursEnd: 24,             // 24:00 exclusive
-  minuteStarts: [0, 30],    // allow :00 and :30 only
-  minLeadMinutes: 240,      // hide anything < 4h from now
-  maxAdvanceDays: 45,       // don’t show beyond 45 days out
-  perDayCap: 6,             // max times to display per day (optional)
+  hoursStart: 13,        // 13:00 inclusive
+  hoursEnd: 24,          // 24:00 exclusive
+  minuteStarts: [0, 30], // starts allowed at :00 and :30
+  minLeadMinutes: 240,   // hide anything < 4h from now
+  maxAdvanceDays: 45,    // don’t show beyond 45 days out
 };
-
-function isStartAllowed(local: Date) {
-  const now = new Date();
-  const diffMs = local.getTime() - now.getTime();
-  const leadOk = diffMs >= AVAIL.minLeadMinutes * 60_000;
-  const maxOk  = diffMs <= AVAIL.maxAdvanceDays * 86_400_000;
-  const h = local.getHours();
-  const m = local.getMinutes();
-  const hourOk = h >= AVAIL.hoursStart && h < AVAIL.hoursEnd;
-  const minuteOk = AVAIL.minuteStarts.includes(m);
-  return leadOk && maxOk && hourOk && minuteOk;
-}
-
 
 function toISOMinute(d: Date) {
   const z = new Date(d.getTime() - d.getTimezoneOffset() * 60000);
   return z.toISOString().slice(0, 16) + ":00.000Z";
 }
-
 function dateKey(d: Date) {
   return format(d, "yyyy-MM-dd");
 }
-
-function sameDayKey(a: Date | string, b: Date | string) {
-  const da = typeof a === "string" ? new Date(a) : a;
-  const db = typeof b === "string" ? new Date(b) : b;
-  return isSameDay(da, db);
+// window check (don’t filter on minuteStarts here!)
+function isWithinWindow(local: Date) {
+  const now = new Date();
+  const diffMs = local.getTime() - now.getTime();
+  const leadOk = diffMs >= AVAIL.minLeadMinutes * 60_000;
+  const maxOk  = diffMs <= AVAIL.maxAdvanceDays * 86_400_000;
+  const h = local.getHours();
+  const hourOk = h >= AVAIL.hoursStart && h < AVAIL.hoursEnd;
+  return leadOk && maxOk && hourOk;
 }
 
-/* ---------- main overlay ---------- */
-
+/* ---------- props ---------- */
 type Props = {
   sessionType: string;
-  liveMinutes: number;
+  liveMinutes: number;    // drives contiguous requirement
   inGame?: boolean;
   followups?: number;
   onClose?: () => void;
@@ -74,9 +61,7 @@ export default function CalLikeOverlay({
   followups = 0,
   onClose,
 }: Props) {
-  const router = useRouter();
-
-  // visible month (1st of month)
+  // month being viewed
   const [month, setMonth] = useState(() => {
     const d = new Date();
     d.setDate(1);
@@ -84,27 +69,29 @@ export default function CalLikeOverlay({
     return d;
   });
 
+  // remote slots
   const [slots, setSlots] = useState<Slot[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  // selection
   const [selectedDate, setSelectedDate] = useState<Date | null>(null);
   const [selectedSlotId, setSelectedSlotId] = useState<string | null>(null);
   const [selectedSlotISO, setSelectedSlotISO] = useState<string | null>(null);
-const [pending, setPending] = useState(false);
 
+  // discord & submit state
   const [discord, setDiscord] = useState("");
-  const [dErr, setDErr] = useState<string | null>(null);  // ← add this
-const discordOk = isDiscordValid(discord);              // ← add this
+  const [dErr, setDErr] = useState<string | null>(null);
+  const [pending, setPending] = useState(false);
 
   function isDiscordValid(s: string) {
-  const t = s.trim();
-  if (!t) return true; // allow empty as “optional”
-  return /^@?[a-z0-9._-]{2,32}$/i.test(t) || /^.{2,32}#\d{4}$/.test(t);
-}
+    const t = s.trim();
+    if (!t) return true; // optional
+    return /^@?[a-z0-9._-]{2,32}$/i.test(t) || /^.{2,32}#\d{4}$/.test(t);
+  }
+  const discordOk = isDiscordValid(discord);
 
-
-  // fetch month worth of slots (pad to whole weeks so month view looks full)
+  // fetch a padded month of slots
   useEffect(() => {
     let ignore = false;
     const from = startOfWeek(startOfMonth(month), { weekStartsOn: 1 });
@@ -123,37 +110,64 @@ const discordOk = isDiscordValid(discord);              // ← add this
       }
     })();
 
-    return () => {
-      ignore = true;
-    };
+    return () => { ignore = true; };
   }, [month]);
 
-  // Map available slots by day (local time)
-  const availableByDay = useMemo(() => {
+  /* ---------------- core logic: contiguous starts ---------------- */
+
+  // All free quarter-hours per day, within window
+  const freeByDay = useMemo(() => {
     const map = new Map<string, { id: string; local: Date }[]>();
     for (const s of slots) {
       if (s.isTaken) continue;
       const local = new Date(s.startTime);
-      if (!isStartAllowed(local)) continue;               // ← filter here
-
+      if (!isWithinWindow(local)) continue;
       const key = dateKey(local);
       if (!map.has(key)) map.set(key, []);
       map.get(key)!.push({ id: s.id, local });
     }
-    // sort times within a day
-    for (const [k, arr] of map) {
-      arr.sort((a, b) => a.local.getTime() - b.local.getTime());
-    }
+    for (const arr of map.values()) arr.sort((a,b)=>a.local.getTime()-b.local.getTime());
     return map;
   }, [slots]);
 
-  // Times list for selected day
-  const timesForSelected = useMemo(() => {
-    if (!selectedDate) return [];
-    return availableByDay.get(dateKey(selectedDate)) ?? [];
-  }, [selectedDate, availableByDay]);
+  // For the month grid: mark a day available only if it has ≥1 valid start
+  const validStartCountByDay = useMemo(() => {
+    const need = Math.ceil(liveMinutes / 15);
+    const out = new Map<string, number>();
+    for (const [key, arr] of freeByDay.entries()) {
+      const freeSet = new Set(arr.map(x => +x.local));
+      let count = 0;
+      for (const s of arr) {
+        // enforce starts at :00 / :30 only
+        if (!AVAIL.minuteStarts.includes(s.local.getMinutes())) continue;
+        let ok = true;
+        for (let i = 0; i < need; i++) {
+          if (!freeSet.has(+s.local + i * 15 * 60_000)) { ok = false; break; }
+        }
+        if (ok) count++;
+      }
+      if (count > 0) out.set(key, count);
+    }
+    return out;
+  }, [freeByDay, liveMinutes]);
 
-  // Build month grid (6 weeks view)
+  // For right pane: list only valid starts for the selected day
+  const validStartsForSelected = useMemo(() => {
+    if (!selectedDate) return [];
+    const need = Math.ceil(liveMinutes / 15);
+    const day = freeByDay.get(dateKey(selectedDate)) ?? [];
+    const freeSet = new Set(day.map(x => +x.local));
+
+    return day.filter(s => {
+      if (!AVAIL.minuteStarts.includes(s.local.getMinutes())) return false;
+      for (let i = 0; i < need; i++) {
+        if (!freeSet.has(+s.local + i * 15 * 60_000)) return false;
+      }
+      return true;
+    });
+  }, [selectedDate, freeByDay, liveMinutes]);
+
+  // Month matrix (6 weeks view)
   const monthMatrix = useMemo(() => {
     const start = startOfWeek(startOfMonth(month), { weekStartsOn: 1 });
     const end = endOfWeek(endOfMonth(month), { weekStartsOn: 1 });
@@ -166,33 +180,33 @@ const discordOk = isDiscordValid(discord);              // ← add this
     return days;
   }, [month]);
 
-async function submitBooking() {
-  if (!selectedSlotId) return;
-  if (!discordOk) {
-    setDErr("Enter a valid Discord handle");
-    return;
+  async function submitBooking() {
+    if (!selectedSlotId) return;
+    if (!discordOk) {
+      setDErr("Enter a valid Discord handle");
+      return;
+    }
+    setDErr(null);
+    setPending(true);
+    try {
+      const { url } = await createCheckout({
+        slotId: selectedSlotId,
+        sessionType,
+        liveMinutes,
+        discord: discord.trim(),
+        inGame,
+        followups,
+      });
+      if (!url) throw new Error("No checkout URL returned");
+      window.location.assign(url);
+    } catch (e: any) {
+      setDErr(e?.message || "Could not start checkout");
+    } finally {
+      setPending(false);
+    }
   }
-  setDErr(null);
-  setPending(true);
-  try {
-    const { url } = await createCheckout({
-      slotId: selectedSlotId,
-      sessionType,
-      liveMinutes,
-      discord: discord.trim(),
-      inGame,
-      followups,
-    });
-    if (!url) throw new Error("No checkout URL returned");
-    window.location.assign(url);
-  } catch (e: any) {
-    setDErr(e?.message || "Could not start checkout");
-  } finally {
-    setPending(false);
-  }
-}
 
-
+  /* ---------------- UI ---------------- */
 
   return (
     <div className="fixed inset-0 z-50 bg-black/65 backdrop-blur-sm grid place-items-center">
@@ -222,9 +236,8 @@ async function submitBooking() {
         {/* body */}
         <div className="px-6 pb-4 flex-1 min-h-0">
           <div className="h-full grid grid-cols-1 md:grid-cols-[1.1fr_1.4fr] gap-6">
-            {/* left: month picker */}
+            {/* left: month */}
             <div className="relative rounded-2xl ring-1 ring-white/10 bg-white/[0.02] p-4">
-              {/* bezel-ish glow */}
               <div className="pointer-events-none absolute -inset-px rounded-2xl blur-xl opacity-50"
                    style={{ background: "linear-gradient(135deg, rgba(34,211,238,0.18), rgba(99,102,241,0.16))" }} />
               <div className="relative z-10">
@@ -256,18 +269,16 @@ async function submitBooking() {
                   </div>
                 ) : (
                   <>
-                    {/* weekday row */}
                     <div className="grid grid-cols-7 text-center text-[11px] text-white/60 mb-1">
                       {["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].map((d) => (
                         <div key={d}>{d}</div>
                       ))}
                     </div>
 
-                    {/* days grid */}
                     <div className="grid grid-cols-7 gap-1">
                       {monthMatrix.map((d) => {
                         const key = dateKey(d);
-                        const hasAvail = (availableByDay.get(key)?.length ?? 0) > 0;
+                        const hasAvail = (validStartCountByDay.get(key) ?? 0) > 0;
                         const selected = selectedDate && isSameDay(d, selectedDate);
                         const outside = !isSameMonth(d, month);
                         const today = isToday(d);
@@ -308,7 +319,7 @@ async function submitBooking() {
               </div>
             </div>
 
-            {/* right: times list */}
+            {/* right: times */}
             <div className="relative rounded-2xl ring-1 ring-white/10 bg-white/[0.02] p-4 flex flex-col">
               <div className="text-white/80 font-medium mb-3">
                 {selectedDate ? (
@@ -323,13 +334,13 @@ async function submitBooking() {
                   <div className="h-full grid place-items-center text-white/50 text-sm">
                     Pick a day on the left
                   </div>
-                ) : timesForSelected.length === 0 ? (
+                ) : validStartsForSelected.length === 0 ? (
                   <div className="h-full grid place-items-center text-white/60 text-sm">
                     No times available for this day.
                   </div>
                 ) : (
                   <ul className="p-3 grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2">
-                    {timesForSelected.map(({ id, local }) => {
+                    {validStartsForSelected.map(({ id, local }) => {
                       const isActive = selectedSlotId === id;
                       const label = local.toLocaleTimeString([], {
                         hour: "numeric",
@@ -358,7 +369,6 @@ async function submitBooking() {
                 )}
               </div>
 
-              {/* hint */}
               <div className="mt-3 text-[12px] text-white/50">
                 Times are shown in your timezone: {Intl.DateTimeFormat().resolvedOptions().timeZone}
               </div>
@@ -366,14 +376,14 @@ async function submitBooking() {
           </div>
         </div>
 
-
-
-        {/* footer — keep this INSIDE the big panel */}
+        {/* footer */}
         <div className="px-6 py-4 border-t border-white/10 flex items-center justify-between gap-3">
           {dErr && <div className="text-rose-400 text-sm">{dErr}</div>}
           <div className="ml-auto flex gap-2">
-            <button className="px-4 py-2 rounded-lg bg-white/10 hover:bg-white/15 ring-1 ring-white/15 text-white"
-                    onClick={onClose}>
+            <button
+              className="px-4 py-2 rounded-lg bg-white/10 hover:bg-white/15 ring-1 ring-white/15 text-white"
+              onClick={onClose}
+            >
               Cancel
             </button>
             <button
@@ -385,8 +395,7 @@ async function submitBooking() {
             </button>
           </div>
         </div>
-      </div> 
-    </div>   
+      </div>
+    </div>
   );
 }
-

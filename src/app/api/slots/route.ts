@@ -1,6 +1,6 @@
 // app/api/slots/route.ts
 import { z } from 'zod'
-import { prisma } from '../../../lib/prisma'
+import { prisma } from '../../lib/prisma'
 export const runtime = 'nodejs'
 
 const QuerySchema = z.object({
