@@ -47,3 +47,4 @@ next-env.d.ts
 "prisma/*.sqlite" 
 ".env"          
 ".env.*.local"  
+"prisma/dev.db"   # if not already there
