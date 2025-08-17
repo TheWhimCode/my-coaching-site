@@ -1,18 +1,17 @@
 export type Slot = { id: string; startTime: string; isTaken: boolean };
 
-// src/app/utils/api
-export async function fetchSlots(from: Date, to: Date, liveMinutes = 60): Promise<Slot[]> {
+export async function fetchSlots(from: Date, to: Date, liveMinutes?: number): Promise<Slot[]> {
   const qs = new URLSearchParams({
     from: from.toISOString(),
     to: to.toISOString(),
-    liveMinutes: String(liveMinutes),
   });
+  if (liveMinutes != null) qs.set("liveMinutes", String(liveMinutes));
+
   const res = await fetch(`/api/slots?${qs}`, { cache: "no-store" });
   const data = await res.json();
   if (!res.ok) throw new Error(data?.error || "Failed to load slots");
   return data;
 }
-
 
 export async function createCheckout(input: {
   slotId: string;
@@ -24,10 +23,15 @@ export async function createCheckout(input: {
 }) {
   const res = await fetch("/api/checkout", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", Accept: "application/json" },
     body: JSON.stringify(input),
   });
-  const data = await res.json();
-  if (!res.ok) throw new Error(data?.error || "Could not start checkout");
+
+  const text = await res.text();
+  let data: any;
+  try { data = text ? JSON.parse(text) : undefined; } catch { /* keep raw */ }
+
+  if (!res.ok) throw new Error(data?.error || text || `Checkout failed (${res.status})`);
+  if (!data?.url) throw new Error("Server didn't return a checkout URL");
   return data as { url: string };
 }

@@ -138,73 +138,53 @@ export default function CustomizeDrawer({ open, onClose, cfg, onChange }: Props)
   <div className="text-sm font-medium mb-2">Presets</div>
   <div className="grid gap-2">
     {/* VOD Review */}
-    <button
-      onClick={() => applyPreset("vod")}
-      className="relative w-full rounded-xl px-4 py-3 text-left ring-1 ring-white/15 overflow-hidden
-                 bg-gradient-to-r from-indigo-500/40 via-fuchsia-500/30 to-violet-500/40 hover:brightness-110"
-    >
-      <div
-        className="pointer-events-none absolute inset-0 opacity-20"
-        style={{
-          backgroundImage:
-            "radial-gradient(rgba(255,255,255,0.25) 1px, transparent 1px)",
-          backgroundSize: "10px 10px",
-        }}
-      />
-      <div className="relative flex items-center justify-between">
-        <div>
-          <div className="font-semibold">VOD Review</div>
-          <div className="text-xs opacity-85">60 min · no add-ons</div>
-        </div>
-        <div className="text-sm font-semibold">€50</div>
-      </div>
-    </button>
+<button
+  onClick={() => applyPreset("vod")}
+  className="relative w-full rounded-xl px-4 py-3 text-left ring-1 ring-white/15 overflow-hidden
+             bg-gradient-to-r from-indigo-500/40 via-fuchsia-500/30 to-violet-500/40 hover:brightness-110"
+>
+  <div className="pointer-events-none absolute inset-0 opacity-20"
+       style={{ backgroundImage: "radial-gradient(rgba(255,255,255,0.25) 1px, transparent 1px)", backgroundSize: "10px 10px" }} />
+  <div className="relative flex items-center justify-between">
+    <div>
+      <div className="font-semibold">VOD Review</div>
+      <div className="text-xs opacity-85">60 min · no add-ons</div>
+    </div>
+    <div className="text-sm font-semibold">€40</div>
+  </div>
+</button>
 
-    {/* Signature */}
-    <button
-      onClick={() => applyPreset("signature")}
-      className="relative w-full rounded-xl px-4 py-3 text-left ring-1 ring-white/15 overflow-hidden
-                 bg-gradient-to-r from-rose-500/40 via-orange-400/35 to-amber-400/35 hover:brightness-110"
-    >
-      <div
-        className="pointer-events-none absolute inset-0 opacity-15"
-        style={{
-          backgroundImage:
-            "repeating-linear-gradient(45deg, rgba(255,255,255,0.25) 0 2px, transparent 2px 6px)",
-        }}
-      />
-      <div className="relative flex items-center justify-between">
-        <div>
-          <div className="font-semibold">Signature</div>
-          <div className="text-xs opacity-85">45 min + 15 min follow-up</div>
-        </div>
-        <div className="text-sm font-semibold">€50 + €10</div>
-      </div>
-    </button>
+<button
+  onClick={() => applyPreset("signature")}
+  className="relative w-full rounded-xl px-4 py-3 text-left ring-1 ring-white/15 overflow-hidden
+             bg-gradient-to-r from-rose-500/40 via-orange-400/35 to-amber-400/35 hover:brightness-110"
+>
+  <div className="pointer-events-none absolute inset-0 opacity-15"
+       style={{ backgroundImage: "repeating-linear-gradient(45deg, rgba(255,255,255,0.25) 0 2px, transparent 2px 6px)" }} />
+  <div className="relative flex items-center justify-between">
+    <div>
+      <div className="font-semibold">Signature</div>
+      <div className="text-xs opacity-85">45 min + 15 min follow-up</div>
+    </div>
+    <div className="text-sm font-semibold">€55</div>
+  </div>
+</button>
 
-    {/* Quick */}
-    <button
-      onClick={() => applyPreset("quick")}
-      className="relative w-full rounded-xl px-4 py-3 text-left ring-1 ring-white/15 overflow-hidden
-                 bg-gradient-to-r from-yellow-400/40 via-amber-300/35 to-lime-300/35 hover:brightness-110"
-    >
-      <div
-        className="pointer-events-none absolute inset-0 opacity-15"
-        style={{
-          backgroundImage:
-            "radial-gradient(rgba(255,255,255,0.25) 1px, transparent 1px)",
-          backgroundSize: "12px 12px",
-        }}
-      />
-      <div className="relative flex items-center justify-between">
-        <div>
-          <div className="font-semibold">Quick Session</div>
-          <div className="text-xs opacity-85">30 min · focused</div>
-        </div>
-        <div className="text-sm font-semibold">€50 (base)</div>
-      </div>
-    </button>
-
+<button
+  onClick={() => applyPreset("quick")}
+  className="relative w-full rounded-xl px-4 py-3 text-left ring-1 ring-white/15 overflow-hidden
+             bg-gradient-to-r from-yellow-400/40 via-amber-300/35 to-lime-300/35 hover:brightness-110"
+>
+  <div className="pointer-events-none absolute inset-0 opacity-15"
+       style={{ backgroundImage: "radial-gradient(rgba(255,255,255,0.25) 1px, transparent 1px)", backgroundSize: "12px 12px" }} />
+  <div className="relative flex items-center justify-between">
+    <div>
+      <div className="font-semibold">Quick Session</div>
+      <div className="text-xs opacity-85">30 min · focused</div>
+    </div>
+    <div className="text-sm font-semibold">€40</div>
+  </div>
+</button>
     {/* Bootcamp (shown but not wired) */}
     <button
       disabled

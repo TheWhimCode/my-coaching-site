@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   addMonths,
   endOfMonth,
@@ -12,8 +12,8 @@ import {
   startOfMonth,
   startOfWeek,
 } from "date-fns";
-import { createCheckout, fetchSlots } from "../../utils/api";
-import type { Slot } from "../../utils/api";
+import { createCheckout, fetchSlots } from "@/app/utils/api";
+import type { Slot } from "@/app/utils/api";
 
 type Props = {
   sessionType: string;
@@ -21,15 +21,26 @@ type Props = {
   inGame?: boolean;
   followups?: number;
   onClose?: () => void;
+  // NEW:
+  initialSlotId?: string | null;
+  prefetchedSlots?: Slot[];
 };
-
+function dayKeyLocal(d: Date) {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const da = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${da}`;
+}
 export default function CalLikeOverlay({
   sessionType,
   liveMinutes,
   inGame = false,
   followups = 0,
   onClose,
+  initialSlotId = null,
+  prefetchedSlots,
 }: Props) {
+  // month shown
   const [month, setMonth] = useState(() => {
     const d = new Date();
     d.setDate(1);
@@ -37,13 +48,16 @@ export default function CalLikeOverlay({
     return d;
   });
 
+  // remote slots
   const [slots, setSlots] = useState<Slot[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  // selection
   const [selectedDate, setSelectedDate] = useState<Date | null>(null);
   const [selectedSlotId, setSelectedSlotId] = useState<string | null>(null);
 
+  // discord & submit
   const [discord, setDiscord] = useState("");
   const [dErr, setDErr] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
@@ -55,7 +69,7 @@ export default function CalLikeOverlay({
   }
   const discordOk = isDiscordValid(discord);
 
-  // fetch a padded month of slots (authoritative from server)
+  // fetch slots for current month (or use prefetched)
   useEffect(() => {
     let ignore = false;
     const from = startOfWeek(startOfMonth(month), { weekStartsOn: 1 });
@@ -65,7 +79,9 @@ export default function CalLikeOverlay({
       setLoading(true);
       setError(null);
       try {
-        const data = await fetchSlots(from, to, liveMinutes); // <-- pass liveMinutes
+        const data = prefetchedSlots?.length
+          ? prefetchedSlots
+          : await fetchSlots(from, to, liveMinutes);
         if (!ignore) setSlots(data);
       } catch (e: any) {
         if (!ignore) setError(e?.message || "Failed to load availability");
@@ -75,19 +91,35 @@ export default function CalLikeOverlay({
     })();
 
     return () => { ignore = true; };
-  }, [month, liveMinutes]);
+  }, [month, liveMinutes, prefetchedSlots]);
 
-  // Group returned starts by day
+  // preselect the passed slot once slots are loaded
+  const preselectedOnce = useRef(false);
+  useEffect(() => {
+    if (preselectedOnce.current || !initialSlotId || !slots.length) return;
+    const hit = slots.find(s => s.id === initialSlotId);
+    if (!hit) return;
+
+    const dt = new Date(hit.startTime);
+    const m = new Date(dt);
+    m.setDate(1); m.setHours(0, 0, 0, 0);
+    setMonth(m);
+    setSelectedDate(new Date(dt.getFullYear(), dt.getMonth(), dt.getDate()));
+    setSelectedSlotId(hit.id);
+    preselectedOnce.current = true;
+  }, [initialSlotId, slots]);
+
+  // group starts by day
   const startsByDay = useMemo(() => {
     const map = new Map<string, { id: string; local: Date }[]>();
     for (const s of slots) {
-      if (s.isTaken) continue; // server should already filter, but keep safe
+      if (s.isTaken) continue;
       const dt = new Date(s.startTime);
-      const key = dt.toISOString().slice(0, 10);
+      const key = dayKeyLocal(dt);
       if (!map.has(key)) map.set(key, []);
       map.get(key)!.push({ id: s.id, local: dt });
     }
-    for (const arr of map.values()) arr.sort((a,b)=>a.local.getTime()-b.local.getTime());
+    for (const arr of map.values()) arr.sort((a, b) => a.local.getTime() - b.local.getTime());
     return map;
   }, [slots]);
 
@@ -99,28 +131,13 @@ export default function CalLikeOverlay({
 
   const validStartsForSelected = useMemo(() => {
     if (!selectedDate) return [];
-    const key = selectedDate.toISOString().slice(0, 10);
+    const key = dayKeyLocal(selectedDate);
     return startsByDay.get(key) ?? [];
   }, [selectedDate, startsByDay]);
 
-  const monthMatrix = useMemo(() => {
-    const start = startOfWeek(startOfMonth(month), { weekStartsOn: 1 });
-    const end = endOfWeek(endOfMonth(month), { weekStartsOn: 1 });
-    const days: Date[] = [];
-    const cur = new Date(start);
-    while (cur <= end) {
-      days.push(new Date(cur));
-      cur.setDate(cur.getDate() + 1);
-    }
-    return days;
-  }, [month]);
-
   async function submitBooking() {
     if (!selectedSlotId) return;
-    if (!discordOk) {
-      setDErr("Enter a valid Discord handle");
-      return;
-    }
+    if (!discordOk) { setDErr("Enter a valid Discord handle"); return; }
     setDErr(null);
     setPending(true);
     try {
@@ -132,7 +149,6 @@ export default function CalLikeOverlay({
         inGame,
         followups,
       });
-      if (!url) throw new Error("No checkout URL returned");
       window.location.assign(url);
     } catch (e: any) {
       setDErr(e?.message || "Could not start checkout");
@@ -141,6 +157,7 @@ export default function CalLikeOverlay({
     }
   }
 
+  // UI
   return (
     <div className="fixed inset-0 z-50 bg-black/65 backdrop-blur-sm grid place-items-center">
       <div className="w-[92vw] max-w-[1200px] h-[88vh] rounded-2xl overflow-hidden ring-1 ring-white/10 bg-neutral-950 shadow-2xl flex flex-col">
@@ -150,7 +167,6 @@ export default function CalLikeOverlay({
             <div className="text-[11px] uppercase tracking-[0.18em] text-white/60">Schedule</div>
             <div className="text-xl font-semibold">{sessionType}</div>
           </div>
-
           <div className="flex items-center gap-3">
             <div className="hidden md:block text-xs text-white/50">
               {Intl.DateTimeFormat().resolvedOptions().timeZone}
@@ -191,8 +207,15 @@ export default function CalLikeOverlay({
                     </div>
 
                     <div className="grid grid-cols-7 gap-1">
-                      {monthMatrix.map((d) => {
-                        const key = d.toISOString().slice(0, 10);
+                      {(() => {
+                        const start = startOfWeek(startOfMonth(month), { weekStartsOn: 1 });
+                        const end = endOfWeek(endOfMonth(month), { weekStartsOn: 1 });
+                        const days: Date[] = [];
+                        const cur = new Date(start);
+                        while (cur <= end) { days.push(new Date(cur)); cur.setDate(cur.getDate() + 1); }
+                        return days;
+                      })().map((d) => {
+                        const key = dayKeyLocal(d);
                         const hasAvail = (validStartCountByDay.get(key) ?? 0) > 0;
                         const selected = selectedDate && isSameDay(d, selectedDate);
                         const outside = !isSameMonth(d, month);
@@ -202,10 +225,7 @@ export default function CalLikeOverlay({
                           <button
                             key={key}
                             disabled={!hasAvail}
-                            onClick={() => {
-                              setSelectedDate(d);
-                              setSelectedSlotId(null);
-                            }}
+                            onClick={() => { setSelectedDate(d); setSelectedSlotId(null); }}
                             className={[
                               "aspect-square rounded-lg text-sm ring-1 ring-white/10 transition-all",
                               outside ? "opacity-45" : "",
@@ -230,15 +250,13 @@ export default function CalLikeOverlay({
             {/* right: times */}
             <div className="relative rounded-2xl ring-1 ring-white/10 bg-white/[0.02] p-4 flex flex-col">
               <div className="text-white/80 font-medium mb-3">
-                {selectedDate ? (
-                  <>Available times on <span className="text-white">{format(selectedDate, "EEE, MMM d")}</span></>
-                ) : ("Select a day to see times")}
+                {selectedDate ? <>Available times on <span className="text-white">{format(selectedDate, "EEE, MMM d")}</span></> : "Select a day to see times"}
               </div>
 
               <div className="relative flex-1 min-h-0 overflow-auto rounded-xl ring-1 ring-white/10 bg-neutral-950/60">
                 {!selectedDate ? (
                   <div className="h-full grid place-items-center text-white/50 text-sm">Pick a day on the left</div>
-                ) : validStartsForSelected.length === 0 ? (
+                ) : (validStartsForSelected.length === 0) ? (
                   <div className="h-full grid place-items-center text-white/60 text-sm">No times available for this day.</div>
                 ) : (
                   <ul className="p-3 grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2">
@@ -251,9 +269,8 @@ export default function CalLikeOverlay({
                             onClick={() => setSelectedSlotId(id)}
                             className={[
                               "w-full px-3 py-2 rounded-lg text-sm ring-1 transition",
-                              isActive
-                                ? "ring-cyan-400/70 bg-cyan-400/15 text-white"
-                                : "ring-white/10 bg-white/[0.03] hover:bg-white/[0.08] text-white/90",
+                              isActive ? "ring-cyan-400/70 bg-cyan-400/15 text-white"
+                                       : "ring-white/10 bg-white/[0.03] hover:bg-white/[0.08] text-white/90",
                             ].join(" ")}
                           >
                             {label}

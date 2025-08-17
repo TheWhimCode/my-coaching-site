@@ -10,9 +10,11 @@ function StepPill({ i, text }: { i: number; text: string }) {
   return (
     <div
       aria-disabled
-      className="select-none rounded-xl border border-white/15 bg-white/5 px-6 py-5 min-h-[72px] flex items-center gap-4 ring-1 ring-white/10"
+      className="select-text rounded-xl px-6 py-5 min-h-[72px] flex items-center gap-4
+                 backdrop-blur-md bg-[#0B1220]/80 ring-1 ring-[rgba(146,180,255,.18)]"
     >
-      <span className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-white/10 ring-1 ring-white/15 text-sm font-semibold">
+      <span className="select-none inline-flex h-9 w-9 items-center justify-center rounded-full
+                       bg-white/10 ring-1 ring-white/15 text-sm font-semibold">
         {i}
       </span>
       <span className="text-base text-white/90">{text}</span>
@@ -26,12 +28,14 @@ type Props = {
   image: string;
   children?: ReactNode;
   showHint?: boolean;
+  followups?: number;
+
   onHintClick?: () => void;
   howItWorks?: string[];
   onCustomize?: () => void;
   onBookNow?: () => void;
+  onOpenCalendar?: (opts: { slotId?: string; liveMinutes: number }) => void;
 
-  // Old prop (optional). If provided, we’ll still prefer real suggestions.
   slots?: Slot[];
   onPickSlot?: (id: string) => void;
 
@@ -40,9 +44,6 @@ type Props = {
   extraMinutes?: number;
   totalPriceEUR?: number;
   isCustomizingCenter?: boolean;
-  onQuickAdd15?: () => void;
-  onClearExtras?: () => void;
-  onPickPreset?: (id: string) => void;
 };
 
 export default function SessionHero({
@@ -51,9 +52,9 @@ export default function SessionHero({
   image,
   howItWorks,
   onCustomize,
-  onBookNow,
+  onOpenCalendar,
   slots,
-  onPickSlot,
+  followups,
   baseMinutes = 60,
   basePriceEUR = 50,
   extraMinutes = 0,
@@ -64,20 +65,19 @@ export default function SessionHero({
   const [loading, setLoading] = useState(true);
   const liveMinutes = (baseMinutes ?? 60) + (extraMinutes ?? 0);
 
-  // Fetch REAL suggestions (prefer these over any passed-in "fake" slots)
   useEffect(() => {
     let on = true;
     setLoading(true);
     (async () => {
       try {
-        const suggestions = await fetchSuggestedStarts(liveMinutes);
+        const s = await fetchSuggestedStarts(liveMinutes);
         if (!on) return;
-        const mapped: Slot[] = suggestions.map((s) => ({
-          id: s.id,
-          startISO: s.startTime,
+        const mapped: Slot[] = s.map((x) => ({
+          id: x.id,
+          startISO: x.startTime,
           durationMin: liveMinutes,
           isTaken: false,
-        }));
+        })) as any;
         setAutoSlots(mapped);
       } finally {
         if (on) setLoading(false);
@@ -88,79 +88,117 @@ export default function SessionHero({
     };
   }, [liveMinutes]);
 
-  const effectiveSlots = autoSlots.length ? autoSlots : (slots ?? []);
+  const effectiveSlots = (slots?.length ? slots : autoSlots) as Slot[];
 
   return (
     <section className="relative isolate h-[100svh] overflow-hidden text-white vignette">
-      {/* Background */}
-      <div className="absolute inset-0 bg-hero-gradient" />
-      <div
-        className="absolute bottom-0 left-1/2 -translate-x-1/2 w-[1100px] h-44 opacity-20 blur-sm rounded-t-2xl"
-        style={{ backgroundImage: `url(${image})`, backgroundSize: "cover", backgroundPosition: "50% 35%" }}
-      />
-      <div className="absolute inset-0 hud-grid" />
-      <div className="absolute inset-0 scanlines" />
-      <div className="absolute inset-0 noise" />
+      {/* Background stack (non-interactive) */}
+  <div className="absolute inset-0 -z-10 overflow-hidden pointer-events-none">
+    <video
+      src="/videos/hero-test.mp4"
+      autoPlay
+      muted
+      loop
+      playsInline
+      // grayscale + a touch of contrast, then dim a bit
+      className="h-full w-full object-cover [filter:grayscale(1)_contrast(1.05)_brightness(.8)]"
+    />
+    {/* blue tint over the greyscale video */}
+  <div className="absolute inset-0 mix-blend-color bg-[#1f3d8b]/90" />
+    {/* extra soft dim (adjust /30–/60 as you like) */}
+    <div className="absolute inset-0 bg-black/30" />
+  </div>
+      <div className="absolute inset-0 hud-grid pointer-events-none z-0" />
+      <div className="absolute inset-0 scanlines pointer-events-none z-0" />
+      <div className="absolute inset-0 noise pointer-events-none z-0" />
 
       {/* Content */}
-      <div className="relative z-10 mx-auto max-w-7xl px-6 md:px-8 h-full grid grid-rows-[1fr_auto] md:grid-rows-1 md:grid-cols-[1.05fr_1.1fr_.95fr] gap-7 items-center">
-        {/* Left */}
-        <div className="self-center space-y-5">
-          <div>
-            <h1 className="text-6xl font-extrabold leading-tight whitespace-nowrap md:text-6xl lg:text-7xl">{title}</h1>
-            <p className="mt-2 text-white/80 text-xl">{subtitle}</p>
-          </div>
+      <div className="relative z-20 h-full flex items-center py-10 md:py-14">
+        <div className="mx-auto w-full max-w-7xl px-6 md:px-8">
+          <div className="grid md:grid-cols-[1.2fr_1.1fr_.95fr] gap-7 items-start">
+            {/* HEADER spans grid */}
+            <header className="md:col-span-3 mb-2 md:mb-4">
+              <h1 className="text-6xl font-extrabold leading-tight md:text-6xl lg:text-7xl">{title}</h1>
+              <p className="mt-2 text-white/80 text-xl">{subtitle}</p>
+            </header>
 
-          <div className="rounded-2xl bg-white/6 backdrop-blur-md ring-1 ring-white/15 p-7 space-y-5">
-            {howItWorks?.length ? (
-              <div className="grid gap-4 [grid-template-columns:repeat(auto-fit,minmax(240px,1fr))]">
-                {howItWorks.map((t, idx) => <StepPill key={idx} i={idx + 1} text={t} />)}
-                <StepPill i={(howItWorks.length ?? 0) + 1} text="Pick a time slot" />
-                <StepPill i={(howItWorks.length ?? 0) + 2} text="Get your action plan" />
+            {/* LEFT */}
+            <div className="self-start">
+              <div className="rounded-2xl p-7 space-y-5 backdrop-blur-md bg-[#0B1220]/80 ring-1 ring-[rgba(146,180,255,.18)]">
+                {howItWorks?.length ? (
+                  <div className="grid gap-4 [grid-template-columns:repeat(auto-fit,minmax(240px,1fr))]">
+                    {howItWorks.map((t, i) => (
+                      <StepPill key={i} i={i + 1} text={t} />
+                    ))}
+                    <StepPill i={(howItWorks.length ?? 0) + 1} text="Pick a time slot" />
+                    <StepPill i={(howItWorks.length ?? 0) + 2} text="Get your action plan" />
+                  </div>
+                ) : null}
               </div>
-            ) : null}
+            </div>
+
+            {/* CENTER */}
+            <div className="self-start">
+             <CenterSessionPanel
+  title={title}
+  baseMinutes={baseMinutes}
+  extraMinutes={extraMinutes}
+  totalPriceEUR={totalPriceEUR}
+  isCustomizing={isCustomizingCenter}
+  followups={followups ?? 0}
+/>
+            </div>
+
+            {/* RIGHT — CTA + slots */}
+            <motion.div
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.35, delay: 0.05 }}
+              className="self-start md:justify-self-end w-full max-w-sm"
+            >
+              <div className="rounded-2xl p-5 flex flex-col gap-3 backdrop-blur-md bg-[#0B1220]/80 ring-1 ring-[rgba(146,180,255,.18)]">
+                {/* CTA with halo behind */}
+                <div className="relative">
+                  <span className="pointer-events-none absolute -inset-1 rounded-xl blur-md opacity-30 -z-10
+                                   bg-[radial-gradient(60%_100%_at_50%_50%,_rgba(255,179,71,.28),_transparent_70%)]" />
+                  <button
+                    onClick={() => onOpenCalendar?.({ liveMinutes })}
+                    className="relative z-10 w-full rounded-xl px-5 py-3 text-base font-semibold text-[#0A0A0A]
+                               bg-[#fc8803] hover:bg-[#f8a81a] transition
+                               shadow-[0_10px_28px_rgba(245,158,11,.35)] ring-1 ring-[rgba(255,190,80,.55)]"
+                  >
+                    Book now
+                  </button>
+                </div>
+
+                {onCustomize && (
+                  <button
+                    onClick={onCustomize}
+                    className="w-full rounded-xl px-5 py-3 text-base font-medium
+                               bg-white/10 hover:bg-white/15 ring-1 ring-white/15 transition"
+                  >
+                    Customize
+                  </button>
+                )}
+
+                {/* Next available */}
+                {loading ? (
+                  <div className="text-xs text-white/70">Loading times…</div>
+                ) : effectiveSlots?.length ? (
+                  <>
+                    <div className="mt-1 text-xs text-[#8FB8E6]">Next available</div>
+                    <AvailableSlots
+                      slots={effectiveSlots}
+                      onPick={(id) => onOpenCalendar?.({ slotId: id, liveMinutes })}
+                    />
+                  </>
+                ) : null}
+
+                <p className="text-xs text-white/70 mt-1">Secure checkout (Stripe). Custom options available.</p>
+              </div>
+            </motion.div>
           </div>
         </div>
-
-        {/* Center */}
-        <CenterSessionPanel
-          title={title}
-          baseMinutes={baseMinutes}
-          basePriceEUR={basePriceEUR}
-          extraMinutes={extraMinutes}
-          totalPriceEUR={totalPriceEUR}
-          isCustomizing={isCustomizingCenter}
-        />
-
-        {/* Right — CTA + slots */}
-        <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.35, delay: 0.05 }} className="md:justify-self-end w-full max-w-sm">
-          <div className="rounded-2xl bg-white/6 backdrop-blur-md ring-1 ring-white/15 p-5 flex flex-col gap-3">
-            {onBookNow && (
-              <button onClick={onBookNow} className="w-full rounded-xl px-5 py-3 text-base font-semibold bg-emerald-500 hover:bg-emerald-600 transition shadow-md">
-                Book now
-              </button>
-            )}
-            {onCustomize && (
-              <button onClick={onCustomize} className="w-full rounded-xl px-5 py-3 text-base font-medium bg-white/10 hover:bg-white/15 ring-1 ring-white/15 transition">
-                Customize
-              </button>
-            )}
-
-            {/* Next available list */}
-            {loading ? (
-              <div className="text-xs text-white/70">Loading times…</div>
-            ) : effectiveSlots.length ? (
-              <>
-                <div className="mt-1 text-xs text-white/70">Next available</div>
-                <AvailableSlots slots={effectiveSlots} onPick={onPickSlot} />
-              </>
-            ) : (
-              <div className="text-xs text-white/70">No times soon — open the calendar</div>
-            )}
-
-            <p className="text-xs text-white/70 mt-1">Secure checkout (Stripe). Custom options available.</p>
-          </div>
-        </motion.div>
       </div>
     </section>
   );

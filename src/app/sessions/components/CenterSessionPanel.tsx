@@ -1,67 +1,80 @@
 "use client";
+
+import { motion } from "framer-motion";
 import SessionBlock from "@/app/sessions/components/SessionBlock";
 
 type Props = {
   title?: string;
   baseMinutes: number;
-  basePriceEUR?: number;   // not used, keep optional
   extraMinutes?: number;
   totalPriceEUR: number;
   isCustomizing?: boolean;
-  liveBlocks?: number;     // optional badges
-  followups?: number;      // optional badges
+  followups?: number;     // 0–2
+  liveBlocks?: number;    // optional
 };
 
 export default function CenterSessionPanel({
   title = "VOD Review",
   baseMinutes,
-  basePriceEUR,
   extraMinutes = 0,
   totalPriceEUR,
   isCustomizing = false,
-  liveBlocks = 0,
   followups = 0,
+  liveBlocks = 0,
 }: Props) {
   const totalMinutes = baseMinutes + extraMinutes;
 
   return (
     <div className="relative w-full max-w-md">
-      <div className="rounded-2xl bg-white/6 backdrop-blur-md ring-1 ring-white/15 p-6">
-        <SessionBlock
-  title={title}
+      <div className="rounded-2xl backdrop-blur-md p-6 shadow-[0_10px_30px_rgba(0,0,0,.35)] bg-[#0B1220]/80 ring-1 ring-[rgba(146,180,255,.18)]">
+<SessionBlock
+  title={title}                 // optional; auto title will override if you omit this
   minutes={totalMinutes}
   priceEUR={totalPriceEUR}
-  liveBlocks={liveBlocks}
   followups={followups}
+  liveBlocks={liveBlocks}
   isActive={isCustomizing}
   background="transparent"
   className="p-0"
-  layoutId="session-block"
 />
 
-{(liveBlocks > 0 || followups > 0) && (
-  <div className="mt-3 flex gap-2 text-xs text-white/80">
-    {liveBlocks > 0 && (
-      <span className="rounded-md bg-white/10 px-2 py-1 ring-1 ring-white/15">
-        In-game: {liveBlocks}×45m
-      </span>
-    )}
-    {followups > 0 && (
-      <span className="rounded-md bg-white/10 px-2 py-1 ring-1 ring-white/15">
-        +{followups}×15m follow-up
-      </span>
-    )}
+        {/* Follow-up blocks (max 2) */}
+{followups > 0 && (
+  <div className="mt-3 space-y-2">
+    {Array.from({ length: followups }).map((_, i) => (
+      <div
+        key={i}
+        className="rounded-2xl p-4 backdrop-blur-md
+                   bg-[rgba(9,14,25,0.85)]
+                   shadow-[0_10px_30px_rgba(0,0,0,.35)]
+                   flex items-center justify-between"
+      >
+        <div className="text-sm text-white/90 font-semibold">
+          Follow-up recording {i + 1}
+        </div>
+        <div className="text-xs text-white/90 font-semibold">15 min</div>
+      </div>
+    ))}
   </div>
 )}
 
 
         {!isCustomizing && (
-          <div className="mt-5 text-sm text-white/85 space-y-3">
+          <div className="mt-5 text-sm text-white/80 space-y-3">
             <p>Get timestamped insights on your gameplay, a clear action plan, and follow-ups.</p>
             <ul className="space-y-2">
-              <li>• Send VOD + goals</li>
-              <li>• Live review + notes</li>
-              <li>• Action plan & next steps</li>
+              <li className="flex items-start gap-2">
+                <span className="mt-1 h-1.5 w-1.5 rounded-full bg-[rgba(143,184,230,0.7)]" />
+                <span>Send VOD + goals</span>
+              </li>
+              <li className="flex items-start gap-2">
+                <span className="mt-1 h-1.5 w-1.5 rounded-full bg-[rgba(143,184,230,0.7)]" />
+                <span>Live review + notes</span>
+              </li>
+              <li className="flex items-start gap-2">
+                <span className="mt-1 h-1.5 w-1.5 rounded-full bg-[rgba(143,184,230,0.7)]" />
+                <span>Action plan & next steps</span>
+              </li>
             </ul>
           </div>
         )}
