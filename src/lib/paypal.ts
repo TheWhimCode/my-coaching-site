@@ -4,7 +4,6 @@ const base =
     ? "https://api-m.paypal.com"
     : "https://api-m.sandbox.paypal.com";
 
-// cache the OAuth token so we don't fetch it on every request
 let cachedToken: { token: string; expMs: number } | null = null;
 
 function b64(s: string) {
@@ -20,9 +19,7 @@ export async function getPaypalAccessToken(): Promise<string> {
   const res = await fetch(`${base}/v1/oauth2/token`, {
     method: "POST",
     headers: {
-      Authorization: `Basic ${b64(
-        `${process.env.PAYPAL_CLIENT_ID}:${process.env.PAYPAL_SECRET}`
-      )}`,
+      Authorization: `Basic ${b64(`${process.env.PAYPAL_CLIENT_ID}:${process.env.PAYPAL_SECRET}`)}`,
       "Content-Type": "application/x-www-form-urlencoded",
     },
     body: "grant_type=client_credentials",
@@ -43,41 +40,36 @@ export async function getPaypalAccessToken(): Promise<string> {
   return token;
 }
 
-export async function paypalCreateOrder(
-  body: any,
-  requestId?: string
-): Promise<any> {
+export async function paypalCreateOrder(body: any, requestId?: string) {
   const token = await getPaypalAccessToken();
   const res = await fetch(`${base}/v2/checkout/orders`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
+      Accept: "application/json",
       Authorization: `Bearer ${token}`,
-      "Prefer": "return=representation",
       ...(requestId ? { "PayPal-Request-Id": requestId } : {}),
     },
     body: JSON.stringify(body),
   });
 
-  const text = await res.text();
-  let data: any;
-  try { data = JSON.parse(text); } catch { data = text; }
-
+  const data = await res.json().catch(() => ({}));
   if (!res.ok) {
-    console.error("paypal_create_error", res.status, data);
+    const dbg = res.headers.get("paypal-debug-id");
+    console.error("paypal_create_error", { status: res.status, debug_id: dbg, body: data });
     throw new Error(`paypal_create_failed:${res.status}`);
   }
-  return data;
+  return data; // includes { id: "ORDER_ID" }
 }
 
-export async function paypalCaptureOrder(orderId: string): Promise<any> {
+export async function paypalCaptureOrder(orderId: string) {
   const token = await getPaypalAccessToken();
   const res = await fetch(`${base}/v2/checkout/orders/${orderId}/capture`, {
     method: "POST",
     headers: {
       Authorization: `Bearer ${token}`,
       "Content-Type": "application/json",
-      "Prefer": "return=representation",
+      Prefer: "return=representation",
     },
   });
 

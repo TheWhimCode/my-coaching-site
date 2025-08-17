@@ -1,4 +1,4 @@
-// app/checkout/page.tsx
+// src/app/checkout/page.tsx
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
@@ -89,7 +89,6 @@ export default function CheckoutPage() {
   const [clientSecret, setClientSecret] = useState<string | null>(null);
   const [method, setMethod] = useState<"card" | "paypal">("card");
 
-  // Create Stripe PaymentIntent for card flow
   useEffect(() => {
     if (method !== "card") return;
     (async () => {
@@ -151,7 +150,10 @@ export default function CheckoutPage() {
               });
               const out = await res.json();
               if (!res.ok) throw new Error(out?.error || "capture_failed");
-              window.location.href = "/checkout/success";
+              // success: tag provider + orderId
+              window.location.href = `/checkout/success?provider=paypal&orderId=${encodeURIComponent(
+                data.orderID
+              )}&status=paid`;
             }}
             onError={(err) => {
               console.error("PayPal error", err);

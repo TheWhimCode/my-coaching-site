@@ -1,77 +1,88 @@
-// src/app/api/paypal/capture/route.ts
 import { NextResponse } from "next/server";
 import { paypalCaptureOrder } from "@/lib/paypal";
+import { getBlockIds } from "@/lib/booking/block";
 import { finalizeBooking } from "@/lib/booking/finalizeBooking";
 import { prisma } from "@/lib/prisma";
-import { sendBookingEmail } from "@/lib/email";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-function parseCustomId(custom_id?: string | null) {
-  if (!custom_id) return null;
-  try {
-    const json = Buffer.from(custom_id, "base64url").toString("utf8");
-    return JSON.parse(json) as any;
-  } catch {
-    // fall back: maybe it was plain JSON
-    try { return JSON.parse(custom_id); } catch { return null; }
-  }
+// decode our base64url custom_id
+function fromBase64Url(s: string) {
+  const pad = s.length % 4 === 0 ? "" : "=".repeat(4 - (s.length % 4));
+  const b64 = s.replace(/-/g, "+").replace(/_/g, "/") + pad;
+  return Buffer.from(b64, "base64").toString("utf8");
 }
 
 export async function POST(req: Request) {
   const { orderId } = await req.json();
-  if (!orderId) return NextResponse.json({ error: "orderId required" }, { status: 400 });
-
-  const data = await paypalCaptureOrder(orderId);
-
-  if (data.status !== "COMPLETED") {
-    return NextResponse.json({ error: "not_completed", raw: data }, { status: 400 });
+  if (!orderId) {
+    return NextResponse.json({ error: "orderId required" }, { status: 400 });
   }
 
-  const pu = data.purchase_units?.[0];
-  const custom = parseCustomId(pu?.custom_id);
+  try {
+    const data = await paypalCaptureOrder(orderId);
 
-  // meta for finalizeBooking
-  const meta = custom
-    ? {
-        slotId: String(custom.a ?? ""),
-        slotIds: String(custom.b ?? ""),
-        sessionType: String(custom.t ?? "Session"),
-        liveMinutes: String(custom.m ?? "60"),
-        discord: String(custom.d ?? ""),
-        inGame: String(!!custom.g),
-        followups: String(custom.f ?? "0"),
-      }
-    : {};
-
-  const cap = pu?.payments?.captures?.[0];
-  const amountCents =
-    cap?.amount?.value && cap.amount.currency_code
-      ? Math.round(parseFloat(cap.amount.value) * 100)
-      : undefined;
-  const currency = cap?.amount?.currency_code?.toLowerCase() ?? "eur";
-
-  await finalizeBooking(meta, amountCents, currency, orderId, "paypal");
-
-  // try to email payer
-  const email = data.payer?.email_address || undefined;
-  if (email && (meta.slotId || "").length) {
-    const slot = await prisma.slot.findUnique({
-      where: { id: String(meta.slotId) },
-      select: { startTime: true },
-    });
-    if (slot) {
-      await sendBookingEmail(email, {
-        title: meta.sessionType ?? "Coaching Session",
-        startISO: slot.startTime.toISOString(),
-        minutes: parseInt(meta.liveMinutes ?? "60", 10),
-        followups: parseInt(meta.followups ?? "0", 10),
-        priceEUR: Math.round((amountCents ?? 0) / 100),
-        bookingId: String(meta.slotId),
-      });
+    if (data.status !== "COMPLETED") {
+      return NextResponse.json({ error: "not_completed", raw: data }, { status: 400 });
     }
-  }
 
-  return NextResponse.json({ ok: true });
+    const pu = data.purchase_units?.[0];
+    const customRaw = pu?.custom_id ? fromBase64Url(String(pu.custom_id)) : null;
+    const c = customRaw ? JSON.parse(customRaw) as any : null;
+
+    // Build meta for finalizeBooking (we recompute the block now)
+    const meta: any = c
+      ? {
+          slotId: c.a,
+          sessionType: c.t,
+          liveMinutes: String(c.m),
+          discord: c.d,
+          inGame: String(!!c.g),
+          followups: String(c.f),
+        }
+      : {};
+
+    if (c?.a && c?.m) {
+      const ids = await getBlockIds(String(c.a), Number(c.m), prisma);
+      if (ids?.length) meta.slotIds = ids.join(",");
+    }
+
+    // Amount/currency from the capture
+    const cap = pu?.payments?.captures?.[0];
+    const amountCents =
+      cap?.amount?.value ? Math.round(parseFloat(cap.amount.value) * 100) : undefined;
+    const currency = cap?.amount?.currency_code?.toLowerCase() ?? "eur";
+
+    // Persist booking + mark slots (idempotent)
+    await finalizeBooking(meta, amountCents, currency, orderId, "paypal");
+
+    // Email confirmation if we have an address + start time
+    const email = data.payer?.email_address || pu?.payee?.email_address || undefined;
+    if (email && c?.a) {
+      const slot = await prisma.slot.findUnique({
+        where: { id: String(c.a) },
+        select: { startTime: true },
+      });
+      if (slot) {
+        const { sendBookingEmail } = await import("@/lib/email");
+        await sendBookingEmail(email, {
+          title: meta.sessionType ?? "Coaching Session",
+          startISO: slot.startTime.toISOString(),
+          minutes: parseInt(meta.liveMinutes ?? "60", 10),
+          followups: parseInt(meta.followups ?? "0", 10),
+          priceEUR: amountCents ? Math.round(amountCents / 100) : c?.p ?? 0,
+          bookingId: String(c.a),
+        });
+      }
+    }
+
+    return NextResponse.json({ ok: true });
+  } catch (e: any) {
+    console.error("PP_CAPTURE_FAIL", e?.message, e);
+    return NextResponse.json(
+      { error: "paypal_capture_failed", detail: String(e?.message || e) },
+      { status: 500 }
+    );
+  }
 }

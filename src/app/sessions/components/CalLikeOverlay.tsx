@@ -138,6 +138,7 @@ export default function CalLikeOverlay({
     for (const s of slots) {
       if (s.isTaken) continue;
       const dt = new Date(s.startTime);
+      if (dt.getTime() < Date.now()) continue;
       const key = dayKeyLocal(dt);
       if (!map.has(key)) map.set(key, []);
       map.get(key)!.push({ id: s.id, local: dt });

@@ -33,6 +33,11 @@ export async function getBlockIds(startSlotId: string, liveMinutes: number, tx =
   const start = await tx.slot.findUnique({ where: { id: startSlotId } });
   if (!start) return null;
 
+  const { minStart, maxStart, isWithinHours } = guards(new Date());
+  if (start.startTime < minStart) return null;
+  if (start.startTime > maxStart) return null;
+  if (!isWithinHours(start.startTime)) return null;
+
   const { BUFFER_BEFORE_MIN, BUFFER_AFTER_MIN } = getConfig();
 
   const windowStart = addMin(start.startTime, -BUFFER_BEFORE_MIN);

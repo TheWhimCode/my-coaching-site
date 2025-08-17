@@ -1,4 +1,3 @@
-// src/app/api/paypal/create/route.ts
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { CheckoutZ, computePriceEUR } from "@/lib/pricing";
@@ -10,12 +9,37 @@ export const dynamic = "force-dynamic";
 
 const HOLD_TTL_MIN = 10;
 
-function b64urlJson(obj: unknown) {
-  return Buffer.from(JSON.stringify(obj)).toString("base64url");
+// base64url without relying on Buffer "base64url" variant
+function toBase64Url(s: string) {
+  return Buffer.from(s)
+    .toString("base64")
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=+$/g, "");
+}
+
+// keep metadata short; we'll recompute the block on capture
+function encodeMetaShort(meta: {
+  a: string; // slotId
+  m: number; // liveMinutes
+  t: string; // sessionType
+  d: string; // discord
+  g: boolean; // inGame
+  f: number; // followups
+  p: number; // priceEUR
+}) {
+  const b64u = toBase64Url(JSON.stringify(meta));
+  return b64u.length <= 127 ? b64u : b64u.slice(0, 127);
+}
+
+// safe ascii idempotency key (no crypto import)
+function makeRequestId(slotId: string, amountCents: number) {
+  return `${slotId}-${amountCents}-paypal`
+    .replace(/[^a-zA-Z0-9]/g, "")
+    .slice(0, 40);
 }
 
 export async function POST(req: Request) {
-  // validate body
   const {
     slotId,
     sessionType,
@@ -23,20 +47,26 @@ export async function POST(req: Request) {
     discord,
     inGame,
     followups,
-    liveBlocks, // (metadata only)
+    // liveBlocks (UI-only; not needed here)
     holdKey,
   } = CheckoutZ.parse(await req.json());
 
-  // basic checks
+  // 1) Validate slot & not taken
   const slot = await prisma.slot.findUnique({ where: { id: slotId } });
   if (!slot || slot.isTaken) {
-    return NextResponse.json({ error: "Slot not found or already taken" }, { status: 409 });
+    return NextResponse.json(
+      { error: "Slot not found or already taken" },
+      { status: 409 }
+    );
   }
 
-  // hold enforcement/refresh
+  // 2) Enforce/refresh hold
   const now = new Date();
   if (slot.holdUntil && slot.holdUntil < now) {
-    await prisma.slot.update({ where: { id: slotId }, data: { holdUntil: null, holdKey: null } });
+    await prisma.slot.update({
+      where: { id: slotId },
+      data: { holdUntil: null, holdKey: null },
+    });
     return NextResponse.json({ error: "hold_expired" }, { status: 409 });
   }
   if (slot.holdKey && holdKey && slot.holdKey !== holdKey) {
@@ -50,32 +80,33 @@ export async function POST(req: Request) {
     } as any,
   });
 
-  // contiguous block check
+  // 3) Ensure contiguous block available
   const slotIds = await getBlockIds(slotId, liveMinutes, prisma);
   if (!slotIds?.length) {
-    return NextResponse.json({ error: "Selected time isn’t fully available" }, { status: 409 });
+    return NextResponse.json(
+      { error: "Selected time isn’t fully available" },
+      { status: 409 }
+    );
   }
 
-  // price
+  // 4) Price
   const { priceEUR, amountCents } = computePriceEUR(liveMinutes, followups);
 
-  // compact, safe metadata (custom_id ≤127 chars)
-  let custom = b64urlJson({
+  // 5) Compact custom metadata (no block list here)
+  const custom = encodeMetaShort({
     a: slotId,
-    b: slotIds.join(","), // block csv
-    t: sessionType,
     m: liveMinutes,
+    t: sessionType,
     d: discord ?? "",
     g: !!inGame,
     f: followups ?? 0,
     p: priceEUR,
   });
-  if (custom.length > 127) custom = custom.slice(0, 127);
 
-  // idempotency to avoid dupes on retry
-  const idem = `${slotIds.join("|")}:${amountCents}:paypal`;
+  // 6) Safe idempotency key
+  const requestId = makeRequestId(slotId, amountCents);
 
-  // create order
+  // 7) Create order (currency must match your PayPalScriptProvider)
   const order = await paypalCreateOrder(
     {
       intent: "CAPTURE",
@@ -83,8 +114,11 @@ export async function POST(req: Request) {
         {
           reference_id: slotId,
           custom_id: custom,
-          amount: { currency_code: "EUR", value: (amountCents / 100).toFixed(2) },
           description: `${sessionType} (${liveMinutes}m)`,
+          amount: {
+            currency_code: "EUR",
+            value: (amountCents / 100).toFixed(2),
+          },
         },
       ],
       application_context: {
@@ -95,7 +129,7 @@ export async function POST(req: Request) {
         cancel_url: `${process.env.NEXT_PUBLIC_SITE_URL}/checkout/cancel`,
       },
     },
-    idem
+    requestId
   );
 
   return NextResponse.json({ id: order.id });
