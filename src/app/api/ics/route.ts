@@ -1,49 +1,28 @@
-import { randomUUID } from "crypto";
-import { z } from "zod";
+// src/app/api/ics/route.ts
+import { prisma } from "@/lib/prisma";
 
 export const runtime = "nodejs";
 
-const Query = z.object({
-  title: z.string().trim().default("Coaching Session"),
-  start: z.string().trim(),                 // ISO datetime (UTC or local)
-  minutes: z.coerce.number().int().min(1).max(600).default(60),
-  location: z.string().trim().optional(),
-  description: z.string().trim().optional(),
-});
-
 function fmtUTC(d: Date) {
-  // -> 20250817T161500Z
   return d.toISOString().replace(/[-:]/g, "").replace(/\.\d{3}Z$/, "Z");
 }
-function icsEscape(s: string) {
-  // RFC5545 escapes
+function esc(s = "") {
   return s.replace(/\\/g, "\\\\").replace(/;/g, "\\;").replace(/,/g, "\\,").replace(/\n/g, "\\n");
 }
 
 export async function GET(req: Request) {
   const u = new URL(req.url);
-  const parsed = Query.safeParse({
-    title: u.searchParams.get("title") ?? undefined,
-    start: u.searchParams.get("start") ?? undefined,
-    minutes: u.searchParams.get("minutes") ?? undefined,
-    location: u.searchParams.get("location") ?? undefined,
-    description: u.searchParams.get("description") ?? undefined,
+  const id = u.searchParams.get("bookingId");
+  if (!id) return new Response("bookingId required", { status: 400 });
+
+  const b = await prisma.booking.findUnique({
+    where: { id },
+    include: { slot: true },
   });
-  if (!parsed.success) {
-    return new Response(JSON.stringify({ error: "Invalid query" }), { status: 400 });
-  }
+  if (!b || !b.slot) return new Response("not found", { status: 404 });
 
-  const { title, start, minutes, location, description } = parsed.data;
-
-  const startDate = new Date(start);
-  if (isNaN(startDate.getTime())) {
-    return new Response(JSON.stringify({ error: "Invalid start datetime" }), { status: 400 });
-  }
-  const endDate = new Date(startDate.getTime() + minutes * 60_000);
-
-  const dtstamp = fmtUTC(new Date());
-  const dtstart = fmtUTC(startDate);
-  const dtend   = fmtUTC(endDate);
+  const start = b.slot.startTime;                              // stored in UTC -> good
+  const end = new Date(start.getTime() + b.liveMinutes * 60_000);
 
   const lines = [
     "BEGIN:VCALENDAR",
@@ -52,23 +31,35 @@ export async function GET(req: Request) {
     "CALSCALE:GREGORIAN",
     "METHOD:PUBLISH",
     "BEGIN:VEVENT",
-    `UID:${randomUUID()}`,
-    `DTSTAMP:${dtstamp}`,
-    `DTSTART:${dtstart}`,
-    `DTEND:${dtend}`,
-    `SUMMARY:${icsEscape(title)}`,
-    description ? `DESCRIPTION:${icsEscape(description)}` : undefined,
-    location ? `LOCATION:${icsEscape(location)}` : undefined,
+    `UID:${b.id}@your-site`,
+    `DTSTAMP:${fmtUTC(new Date())}`,
+    `DTSTART:${fmtUTC(start)}`,
+    `DTEND:${fmtUTC(end)}`,
+    `SUMMARY:${esc(b.sessionType || "Coaching Session")}`,
+    `DESCRIPTION:${esc(`Discord: ${b.discord || "—"} | Follow-ups: ${b.followups}`)}`,
+    `STATUS:CONFIRMED`,
+    `TRANSP:OPAQUE`,
+    `URL:${esc(process.env.NEXT_PUBLIC_SITE_URL || "")}/sessions/vod-review`,
+    // Optional reminders:
+    "BEGIN:VALARM",
+    "TRIGGER:-PT24H",
+    "ACTION:DISPLAY",
+    "DESCRIPTION:Session in 24 hours",
+    "END:VALARM",
+    "BEGIN:VALARM",
+    "TRIGGER:-PT2H",
+    "ACTION:DISPLAY",
+    "DESCRIPTION:Session in 2 hours",
+    "END:VALARM",
     "END:VEVENT",
     "END:VCALENDAR",
-  ].filter(Boolean);
-
+  ];
   const ics = lines.join("\r\n") + "\r\n";
 
   return new Response(ics, {
     headers: {
       "Content-Type": "text/calendar; charset=utf-8",
-      "Content-Disposition": `attachment; filename="booking.ics"`,
+      "Content-Disposition": `attachment; filename="booking-${b.id}.ics"`,
       "Cache-Control": "no-store",
     },
   });

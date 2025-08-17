@@ -1,6 +1,8 @@
 // src/app/api/stripe/webhook/route.ts
 import Stripe from "stripe";
-import { prisma } from "@/lib/prisma"; // <- adjust if your alias differs
+import { prisma } from "@/lib/prisma";
+import { sendBookingEmail } from "@/lib/email";
+import { finalizeBooking } from "@/lib/booking/finalizeBooking";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -14,87 +16,76 @@ export async function POST(req: Request) {
   const raw = await req.text();
   let event: Stripe.Event;
   try {
-    event = stripe.webhooks.constructEvent(raw, sig, process.env.STRIPE_WEBHOOK_SECRET!);
+    event = stripe.webhooks.constructEvent(
+      raw,
+      sig,
+      process.env.STRIPE_WEBHOOK_SECRET!
+    );
   } catch (err: any) {
+    console.error("WEBHOOK VERIFY ERROR:", err?.message);
     return new Response(`Webhook Error: ${err.message}`, { status: 400 });
   }
 
-  if (event.type === "checkout.session.completed") {
-    const session = event.data.object as Stripe.Checkout.Session;
-    const m = (session.metadata ?? {}) as Record<string, string>;
+  async function handle(meta: Record<string, string>, amount?: number, currency?: string, paymentRef?: string, emailFromPayload?: string) {
+    // finalize (idempotent)
+    await finalizeBooking(meta, amount, (currency ?? "eur").toLowerCase(), paymentRef);
 
-    const slotIds = (m.slotIds ? m.slotIds.split(",") : []).filter(Boolean);
-    const firstSlotId = m.slotId || slotIds[0]; // anchor booking
+    // figure out slot start for the email
+    const slotIds = (meta.slotIds ? meta.slotIds.split(",") : []).filter(Boolean);
+    const firstSlotId = meta.slotId || slotIds[0];
+    const slot = firstSlotId
+      ? await prisma.slot.findUnique({ where: { id: firstSlotId }, select: { startTime: true } })
+      : null;
 
-    const sessionType = m.sessionType ?? "Session";
-    const liveMinutes = parseInt(m.liveMinutes ?? "60", 10);
-    const discord = m.discord ?? "";
-    const inGame = m.inGame === "true";
-    const followups = parseInt(m.followups ?? "0", 10);
-
-    const amountCents = session.amount_total ?? undefined;
-    const currency = (session.currency ?? "eur").toLowerCase();
-    const stripeSessionId = session.id;
-
-    try {
-      await prisma.$transaction(async (tx) => {
-        // 1) Idempotency: record this Stripe event once.
-        // If it already exists, exit early (we've processed it before).
-        try {
-          await tx.processedEvent.create({ data: { id: event.id } });
-        } catch {
-          return; // already processed
-        }
-
-        // 2) Reserve all slices in the block (or the single slot).
-        if (slotIds.length > 0) {
-          await tx.slot.updateMany({
-            where: { id: { in: slotIds } },
-            data: { isTaken: true },
-          });
-        } else if (firstSlotId) {
-          await tx.slot.update({
-            where: { id: firstSlotId },
-            data: { isTaken: true },
-          });
-        }
-
-        // 3) Upsert booking anchored to the first slot.
-        if (firstSlotId) {
-          await tx.booking.upsert({
-            where: { slotId: firstSlotId },
-            update: {
-              status: "paid",
-              stripeSessionId,
-              amountCents,
-              currency,
-              blockCsv: slotIds.join(","),
-            },
-            create: {
-              sessionType,
-              status: "paid",
-              slotId: firstSlotId,
-              liveMinutes,
-              inGame,
-              followups,
-              discord,
-              stripeSessionId,
-              amountCents,
-              currency,
-              blockCsv: slotIds.join(","),
-            },
-          });
-        }
+    // only send if we have an email + a start time
+    if (emailFromPayload && slot?.startTime) {
+      await sendBookingEmail(emailFromPayload, {
+        title: meta.sessionType ?? "Coaching Session",
+        startISO: slot.startTime.toISOString(),
+        minutes: parseInt(meta.liveMinutes ?? "60", 10),
+        followups: parseInt(meta.followups ?? "0", 10),
+        priceEUR: parseInt(meta.priceEUR ?? "40", 10),
+        bookingId: firstSlotId ?? "",
       });
-    } catch (e) {
-      console.error("WEBHOOK_TX_ERROR:", e);
-      // Optional: issue a refund if something failed after payment capture.
-      try {
-        if (session.payment_intent) {
-          await stripe.refunds.create({ payment_intent: String(session.payment_intent) });
-        }
-      } catch {}
     }
+  }
+
+  switch (event.type) {
+    case "payment_intent.succeeded": {
+      const pi = event.data.object as Stripe.PaymentIntent;
+      const meta = (pi.metadata ?? {}) as Record<string, string>;
+
+      let email =
+        pi.receipt_email ||
+        (typeof pi.customer === "string"
+          ? (!("deleted" in (await stripe.customers.retrieve(pi.customer))) &&
+              (await stripe.customers.retrieve(pi.customer) as Stripe.Customer).email) || undefined
+          : undefined);
+
+      // Fallback: latest charge billing email
+      if (!email) {
+        const piExpanded = await stripe.paymentIntents.retrieve(pi.id, {
+          expand: ["latest_charge"],
+        });
+        const lc = piExpanded.latest_charge as Stripe.Charge | null;
+        email = lc?.billing_details?.email ?? undefined;
+      }
+
+      await handle(meta, pi.amount_received ?? undefined, pi.currency, pi.id, email ?? undefined);
+      break;
+    }
+
+    case "checkout.session.completed": {
+      const cs = event.data.object as Stripe.Checkout.Session;
+      const meta = (cs.metadata ?? {}) as Record<string, string>;
+      const email = cs.customer_details?.email || undefined;
+      await handle(meta, cs.amount_total ?? undefined, cs.currency ?? "eur", cs.id, email);
+      break;
+    }
+
+    default:
+      // ignore others
+      break;
   }
 
   return new Response("ok", { status: 200 });

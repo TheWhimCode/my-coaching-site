@@ -12,12 +12,14 @@ type Props = {
   background?: "transparent" | string;
   className?: string;
   layoutId?: string;
+  liveBlocks?: number;         // 0..2 (each 45m => 3 green ticks)
 };
 
 // --- single source of truth for tick size (kept as-is) ---
 const TICK_W = 44;
 const TICK_H = 8;
 const TOTAL_TICKS = 6; // 0..6 -> 30..120
+const INGAME = { ring: "#59F38D", glow: "rgba(89,243,141,.55)" }; // neon green
 
 const clamp = (n: number, min: number, max: number) => Math.min(max, Math.max(min, n));
 
@@ -27,7 +29,9 @@ function getPreset(minutes: number, followups = 0) {
   if (minutes === 45 && followups === 1) return "signature";
   return "custom";
 }
-function colors(preset: ReturnType<typeof getPreset>) {
+type Preset = ReturnType<typeof getPreset>;
+
+function colors(preset: Preset) {
   switch (preset) {
     case "quick":     return { ring: "#F8D34B", glow: "rgba(248,211,75,.65)" };   // yellow
     case "signature": return { ring: "#F87171", glow: "rgba(248,113,113,.65)" };  // red
@@ -42,7 +46,7 @@ function SessionIcon({
   color,
   glow,
 }: {
-  preset: "vod" | "quick" | "signature" | "custom";
+  preset: Preset;
   color: string;
   glow: string;
 }) {
@@ -67,11 +71,7 @@ function SessionIcon({
     // lightning bolt
     return (
       <svg {...common} aria-hidden>
-        <path
-          d="M13 2L6 13h5l-1 9 7-11h-5l1-9Z"
-          fill={color}
-          opacity=".9"
-        />
+        <path d="M13 2L6 13h5l-1 9 7-11h-5l1-9Z" fill={color} opacity=".9" />
       </svg>
     );
   }
@@ -105,6 +105,7 @@ export default function SessionBlock({
   background = "transparent",
   className = "",
   layoutId,
+  liveBlocks = 0,
 }: Props) {
   const preset = getPreset(minutes, followups);
   const { ring, glow } = colors(preset);
@@ -114,6 +115,11 @@ export default function SessionBlock({
     const raw = Math.round((minutes - 30) / 15);
     return clamp(raw, 0, TOTAL_TICKS);
   }, [minutes]);
+
+  // 3 green ticks per 45m block; limited by lit ticks (and 6 total)
+  const greenTicks = useMemo(() => {
+    return clamp(liveBlocks * 3, 0, litTicks);
+  }, [liveBlocks, litTicks]);
 
   // Fixed labels for presets; everything else is Custom
   const displayTitle =
@@ -148,7 +154,7 @@ export default function SessionBlock({
     >
       {/* Top-right emblem */}
       <div className="pointer-events-none absolute right-4 top-3">
-        <SessionIcon preset={preset as any} color={ring} glow={glow} />
+        <SessionIcon preset={preset} color={ring} glow={glow} />
       </div>
 
       {/* Expanding ring pulse (kept center, stays inside) */}
@@ -194,17 +200,18 @@ export default function SessionBlock({
       <h3 className="text-2xl font-extrabold tracking-tight">{displayTitle}</h3>
 
       {/* Meta */}
-      <div className="mt-5 flex items-center justify-between text-[15px] font-semibold">
+      <div className="mt-8 flex items-center justify-between text-[15px] font-semibold">
         <span className="text-white/90">{minutes} min</span>
         <span className="text-white/90">€{priceEUR}</span>
       </div>
 
       {/* Ticks (unchanged geometry) */}
       <div className="mt-3">
-        <div className="h-4" />
         <div className="flex gap-2 items-center">
           {Array.from({ length: TOTAL_TICKS }).map((_, i) => {
-            const lit = i < litTicks;
+            const isLit = i < litTicks;
+            const isGreen = i < greenTicks; // first N positions are green
+
             return (
               <div
                 key={i}
@@ -212,9 +219,13 @@ export default function SessionBlock({
                 style={{
                   width: TICK_W,
                   height: TICK_H,
-                  backgroundColor: lit ? colors(preset).ring : "rgba(255,255,255,0.12)",
-                  borderColor: lit ? "transparent" : "rgba(255,255,255,0.18)",
-                  boxShadow: lit ? `0 2px 10px ${colors(preset).glow}` : "none",
+                  backgroundColor: isLit
+                    ? (isGreen ? INGAME.ring : ring)
+                    : "rgba(255,255,255,0.12)",
+                  borderColor: isLit ? "transparent" : "rgba(255,255,255,0.18)",
+                  boxShadow: isLit
+                    ? (isGreen ? `0 2px 10px ${INGAME.glow}` : `0 2px 10px ${glow}`)
+                    : "none",
                 }}
               />
             );
